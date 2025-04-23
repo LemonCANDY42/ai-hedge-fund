@@ -20,10 +20,15 @@ This system employs several agents working together:
 14. Risk Manager - Calculates risk metrics and sets position limits
 15. Portfolio Manager - Makes final trading decisions and generates orders
     
+
 <img width="1042" alt="Screenshot 2025-03-22 at 6 19 07 PM" src="https://github.com/user-attachments/assets/cbae3dcf-b571-490d-b0ad-3f0f035ac0d4" />
 
-
 **Note**: the system simulates trading decisions, it does not actually trade.
+
+**TODO:**
+
+1. Add local persistent caching of historical financial data.
+2. By obtaining historical information before a certain moment, combining the characteristics of different experts, using reinforcement learning to generate expected transaction summary, and changing it to a predictive thinking process, using frameworks such as LLaMA-Factory/unsloth to fine-tune the various agents represented by llm (priority for MoE).
 
 [![Twitter Follow](https://img.shields.io/twitter/follow/virattt?style=social)](https://twitter.com/virattt)
 
