@@ -203,35 +203,6 @@ ai-hedge-fund/
 ├── ...
 ```
 
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
-
-**Important**: Please keep your pull requests small and focused.  This will make it easier to review and merge.
-
-## Feature Requests
-
-If you have a feature request, please open an [issue](https://github.com/virattt/ai-hedge-fund/issues) and make sure it is tagged with `enhancement`.
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-# AI Hedge Fund - Local Persistent Caching System
-
-This repository contains a flexible caching system for financial data, designed to minimize external API calls while providing efficient data access patterns.
-
-## Features
-
-- **Multi-level Caching**: Support for Redis, SQLite/PostgreSQL, and in-memory caching
-- **Graceful Degradation**: Automatically falls back to less persistent cache levels if a level is unavailable
-- **Configurable Cache Modes**: Choose between full persistence, Redis-only, memory-only, or no caching
-- **Thread-safe Access**: Safe for concurrent data retrieval and updates
-
 ## Cache Architecture
 
 The system implements a hierarchical caching model:
@@ -245,13 +216,13 @@ The system implements a hierarchical caching model:
 
 The caching system can be configured via environment variables:
 
-| Variable | Description | Default | Options |
-|----------|-------------|---------|---------|
-| `CACHE_MODE` | Cache operation mode | `full` | `full`, `redis`, `memory`, `none` |
-| `DATABASE_URL` | Database connection string | `sqlite:///./data.db` | Any SQLAlchemy URL |
-| `REDIS_URL` | Redis connection string | `redis://localhost:6379/0` | Any Redis URL |
-| `REDIS_EXPIRATION` | Redis cache TTL (seconds) | `604800` (7 days) | Any integer |
-| `AUTO_INITIALIZE` | Auto-initialize on import | `true` | `true`, `false` |
+| Variable           | Description                | Default                    | Options                           |
+| ------------------ | -------------------------- | -------------------------- | --------------------------------- |
+| `CACHE_MODE`       | Cache operation mode       | `full`                     | `full`, `redis`, `memory`, `none` |
+| `DATABASE_URL`     | Database connection string | `sqlite:///./data.db`      | Any SQLAlchemy URL                |
+| `REDIS_URL`        | Redis connection string    | `redis://localhost:6379/0` | Any Redis URL                     |
+| `REDIS_EXPIRATION` | Redis cache TTL (seconds)  | `604800` (7 days)          | Any integer                       |
+| `AUTO_INITIALIZE`  | Auto-initialize on import  | `true`                     | `true`, `false`                   |
 
 ## Cache Modes
 
@@ -305,3 +276,24 @@ The system includes comprehensive logging to track cache hits, misses, and error
 - **Redis**: Optimal for high-throughput scenarios with moderate memory requirements
 - **Database**: Best for long-term storage and complex queries
 - **Memory**: Fastest but volatile, use for temporary caching
+
+
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
+
+**Important**: Please keep your pull requests small and focused.  This will make it easier to review and merge.
+
+## Feature Requests
+
+If you have a feature request, please open an [issue](https://github.com/virattt/ai-hedge-fund/issues) and make sure it is tagged with `enhancement`.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
