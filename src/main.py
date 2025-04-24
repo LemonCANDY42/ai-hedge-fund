@@ -15,6 +15,9 @@ from utils.progress import progress
 from llm.models import LLM_ORDER, OLLAMA_LLM_ORDER, get_model_info, ModelProvider, get_lmstudio_models
 from utils.ollama import ensure_ollama_and_model
 from utils.lmstudio import ensure_lmstudio_server
+from data.cache import init_cache
+from data.database import init_db
+from data.cache_manager import get_cache_manager
 
 import argparse
 from datetime import datetime
@@ -24,6 +27,14 @@ import json
 
 # Load environment variables from .env file
 load_dotenv()
+
+# 初始化数据库和缓存系统
+try:
+    init_db()
+    init_cache()
+    print(f"{Fore.CYAN}Database and cache system initialized.{Style.RESET_ALL}")
+except Exception as e:
+    print(f"{Fore.RED}Warning: Failed to initialize database or cache system: {e}{Style.RESET_ALL}")
 
 init(autoreset=True)
 
@@ -166,11 +177,42 @@ if __name__ == "__main__":
     parser.add_argument(
         "--lmstudio", action="store_true", help="Use LM Studio for local LLM inference"
     )
+    parser.add_argument(
+        "--prefetch-data", action="store_true", help="Prefetch financial data for tickers before starting"
+    )
 
     args = parser.parse_args()
 
     # Parse tickers from comma-separated string
     tickers = [ticker.strip() for ticker in args.tickers.split(",")]
+
+    # 预获取数据（如果启用）
+    if args.prefetch_data:
+        try:
+            cache_manager = get_cache_manager()
+            print(f"{Fore.CYAN}Prefetching financial data for {len(tickers)} tickers...{Style.RESET_ALL}")
+            
+            # Set the start and end dates
+            end_date = args.end_date or datetime.now().strftime("%Y-%m-%d")
+            if not args.start_date:
+                # Calculate 3 months before end_date
+                end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
+                start_date = (end_date_obj - relativedelta(months=3)).strftime("%Y-%m-%d")
+            else:
+                start_date = args.start_date
+                
+            # 对每个股票代码预获取数据
+            for ticker in tickers:
+                print(f"Prefetching data for {Fore.YELLOW}{ticker}{Style.RESET_ALL}...")
+                result = cache_manager.refresh_ticker_data(ticker, start_date=start_date, end_date=end_date)
+                success_count = sum(1 for status in result.values() if status)
+                print(f"  {Fore.GREEN if success_count == len(result) else Fore.YELLOW}Completed: {success_count}/{len(result)} data types{Style.RESET_ALL}")
+                
+            print(f"{Fore.GREEN}Data prefetching completed.{Style.RESET_ALL}")
+            
+        except Exception as e:
+            print(f"{Fore.RED}Error during data prefetching: {e}{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}Continuing with on-demand data fetching...{Style.RESET_ALL}")
 
     # Select analysts
     selected_analysts = None

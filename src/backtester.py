@@ -20,13 +20,26 @@ from tools.api import (
     get_prices,
     get_financial_metrics,
     get_insider_trades,
+    check_and_fill_data,
+    refresh_data,
 )
+from data.cache import init_cache
+from data.database import init_db
+from data.cache_manager import get_cache_manager
 from utils.display import print_backtest_results, format_backtest_row
 from typing_extensions import Callable
 from utils.ollama import ensure_ollama_and_model
 from utils.lmstudio import ensure_lmstudio_server
 
 init(autoreset=True)
+
+# 初始化数据库和缓存系统
+try:
+    init_db()
+    init_cache()
+    print(f"{Fore.CYAN}Database and cache system initialized for backtesting.{Style.RESET_ALL}")
+except Exception as e:
+    print(f"{Fore.RED}Warning: Failed to initialize database or cache system: {e}{Style.RESET_ALL}")
 
 
 class Backtester:
@@ -273,28 +286,46 @@ class Backtester:
         return total_value
 
     def prefetch_data(self):
-        """Pre-fetch all data needed for the backtest period."""
-        print("\nPre-fetching data for the entire backtest period...")
-
-        # Convert end_date string to datetime, fetch up to 1 year before
-        end_date_dt = datetime.strptime(self.end_date, "%Y-%m-%d")
-        start_date_dt = end_date_dt - relativedelta(years=1)
-        start_date_str = start_date_dt.strftime("%Y-%m-%d")
-
-        for ticker in self.tickers:
-            # Fetch price data for the entire period, plus 1 year
-            get_prices(ticker, start_date_str, self.end_date)
-
-            # Fetch financial metrics
-            get_financial_metrics(ticker, self.end_date, limit=10)
-
-            # Fetch insider trades
-            get_insider_trades(ticker, self.end_date, start_date=self.start_date, limit=1000)
-
-            # Fetch company news
-            get_company_news(ticker, self.end_date, start_date=self.start_date, limit=1000)
-
-        print("Data pre-fetch complete.")
+        """
+        Pre-fetch all financial data needed for the backtest period.
+        Returns a dictionary of results for each type of data.
+        """
+        try:
+            cache_manager = get_cache_manager()
+            results = {}
+            
+            print(f"{Fore.CYAN}Prefetching financial data for backtest...{Style.RESET_ALL}")
+            for ticker in self.tickers:
+                print(f"  Prefetching data for {Fore.YELLOW}{ticker}{Style.RESET_ALL}...")
+                ticker_result = cache_manager.refresh_ticker_data(
+                    ticker, 
+                    start_date=self.start_date, 
+                    end_date=self.end_date
+                )
+                
+                # 检查是否存在价格数据缺口
+                price_data, missing_dates = cache_manager.fill_missing_price_data(
+                    ticker, 
+                    start_date=self.start_date, 
+                    end_date=self.end_date
+                )
+                
+                if missing_dates:
+                    print(f"  {Fore.YELLOW}Filled {len(missing_dates)} missing trading days for {ticker}{Style.RESET_ALL}")
+                
+                success_count = sum(1 for status in ticker_result.values() if status)
+                results[ticker] = {
+                    'success_rate': success_count / len(ticker_result) if ticker_result else 0,
+                    'missing_dates_filled': len(missing_dates)
+                }
+                print(f"  {Fore.GREEN if ticker_result and all(ticker_result.values()) else Fore.YELLOW}Completed: {success_count}/{len(ticker_result)} data types{Style.RESET_ALL}")
+                
+            print(f"{Fore.GREEN}Data prefetching completed for all tickers.{Style.RESET_ALL}")
+            return results
+        except Exception as e:
+            print(f"{Fore.RED}Error during data prefetching: {e}{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}Continuing with on-demand data fetching...{Style.RESET_ALL}")
+            return None
 
     def parse_agent_response(self, agent_output):
         """Parse JSON output from the agent (fallback to 'hold' if invalid)."""

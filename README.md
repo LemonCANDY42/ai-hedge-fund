@@ -189,8 +189,12 @@ ai-hedge-fund/
 │   │   ├── ...                   # Other agents
 │   │   ├── warren_buffett.py     # Warren Buffett agent
 │   │   ├── ...                   # Other agents
+│   │	├── data/    
+│   │   │	├── cache.py              # Cache system
+│   │   └── ...                   # Other cache-related files
 │   ├── tools/                    # Agent tools
 │   │   ├── api.py                # API tools
+│   │   └── ...                   # Other tools
 │   ├── backtester.py             # Backtesting tools
 │   ├── main.py                   # Main entry point
 │   ├── ollama_utils.py           # Utilities for using Ollama
@@ -216,3 +220,88 @@ If you have a feature request, please open an [issue](https://github.com/virattt
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+# AI Hedge Fund - Local Persistent Caching System
+
+This repository contains a flexible caching system for financial data, designed to minimize external API calls while providing efficient data access patterns.
+
+## Features
+
+- **Multi-level Caching**: Support for Redis, SQLite/PostgreSQL, and in-memory caching
+- **Graceful Degradation**: Automatically falls back to less persistent cache levels if a level is unavailable
+- **Configurable Cache Modes**: Choose between full persistence, Redis-only, memory-only, or no caching
+- **Thread-safe Access**: Safe for concurrent data retrieval and updates
+
+## Cache Architecture
+
+The system implements a hierarchical caching model:
+
+1. **Redis Cache (Fast)**: Primary cache for frequently accessed data
+2. **SQL Database (Persistent)**: Long-term storage and data persistence
+3. **Memory Cache (Fallback)**: Used when Redis is unavailable
+4. **No Cache**: Direct API usage when all cache levels are disabled
+
+## Configuration
+
+The caching system can be configured via environment variables:
+
+| Variable | Description | Default | Options |
+|----------|-------------|---------|---------|
+| `CACHE_MODE` | Cache operation mode | `full` | `full`, `redis`, `memory`, `none` |
+| `DATABASE_URL` | Database connection string | `sqlite:///./data.db` | Any SQLAlchemy URL |
+| `REDIS_URL` | Redis connection string | `redis://localhost:6379/0` | Any Redis URL |
+| `REDIS_EXPIRATION` | Redis cache TTL (seconds) | `604800` (7 days) | Any integer |
+| `AUTO_INITIALIZE` | Auto-initialize on import | `true` | `true`, `false` |
+
+## Cache Modes
+
+- **Full Mode** (`full`): Uses both Redis and Database for maximum performance and persistence
+- **Redis Mode** (`redis`): Uses only Redis, no database persistence
+- **Memory Mode** (`memory`): Uses only in-memory cache, no persistence
+- **No Cache** (`none`): Disables all caching, data is fetched directly from API
+
+## Usage Example
+
+```python
+from data.cache import get_cache
+
+# Get the cache instance
+cache = get_cache()
+
+# Retrieve price data (tries cache first, then database if cache misses)
+prices = cache.get_prices("AAPL", start_date="2023-01-01", end_date="2023-01-31")
+
+# Store new data (updates both cache and database)
+new_prices = [
+    {
+        "ticker": "AAPL",
+        "time": "2023-02-01T00:00:00",
+        "open": 150.0,
+        "close": 155.0,
+        "high": 156.0,
+        "low": 149.0,
+        "volume": 1000000
+    }
+]
+cache.set_prices("AAPL", new_prices)
+```
+
+## Support for Different Data Types
+
+The caching system supports various financial data types:
+
+- **Price Data**: Historical OHLCV data
+- **Financial Metrics**: Key financial ratios and metrics
+- **Financial Line Items**: Detailed financial statement entries
+- **Insider Trades**: Company insider transaction data
+- **Company News**: News articles related to companies
+
+## Error Handling and Monitoring
+
+The system includes comprehensive logging to track cache hits, misses, and errors. If a cache level fails, the system automatically degrades to the next available level.
+
+## Performance Considerations
+
+- **Redis**: Optimal for high-throughput scenarios with moderate memory requirements
+- **Database**: Best for long-term storage and complex queries
+- **Memory**: Fastest but volatile, use for temporary caching
