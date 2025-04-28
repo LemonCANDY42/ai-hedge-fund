@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # 定义一个类型变量用于泛型函数
 T = TypeVar('T')
 
-# 内存缓存，当Redis不可用时使用
+# 内存缓存，当Redis和SQLite都不可用时使用
 _memory_cache = {
     "prices": {},              # ticker -> list[dict]
     "financial_metrics": {},   # ticker -> list[dict]
@@ -54,11 +54,12 @@ class PersistentCache:
     
     该类提供了一个灵活的缓存系统:
     1. Redis + 数据库（完整持久化）
-    2. 仅Redis（无持久存储）
-    3. 内存缓存（回退模式）
-    4. 无缓存（直接从API获取）
+    2. 仅数据库（SQLite持久存储）
+    3. 仅Redis（无持久存储）
+    4. 内存缓存（回退模式）
+    5. 无缓存（直接从API获取）
     """
-    
+
     def __init__(self):
         """初始化缓存系统"""
         self.redis = get_redis()
@@ -214,16 +215,7 @@ class PersistentCache:
             if cached_data:
                 return cached_data
         
-        # 如果不在Redis中，尝试从内存缓存获取
-        if self.cache_mode == "memory" and not is_db_enabled():
-            memory_data = self._memory_get("prices", ticker, start_date=start_date, end_date=end_date)
-            if memory_data:
-                # 如果Redis可用，将内存数据写入Redis
-                if self.redis and cache_key:
-                    self._redis_set(cache_key, memory_data)
-                return memory_data
-                
-        # 如果不在缓存中且数据库已启用，从数据库获取
+        # 如果不在Redis中且数据库已启用，从数据库获取
         if db:
             query = db.query(db_models.Price).filter(db_models.Price.ticker == ticker)
             if start_date:
@@ -247,20 +239,24 @@ class PersistentCache:
                     'volume': item.volume
                 }
                 results.append(result)
-            
-            # 如果结果非空
-            if results:
-                # 存入Redis缓存（如果可用）
-                if self.redis and cache_key:
-                    self._redis_set(cache_key, results)
-                    
-                # 存入内存缓存（如果启用）
-                if self.cache_mode == "memory":
-                    self._memory_set("prices", ticker, results, "time")
-                    
-                return results
                 
-        # 如果不在数据库中且内存缓存已启用，返回一个空列表
+            # 如果有数据且Redis可用，将数据写入Redis
+            if results and self.redis and cache_key:
+                self._redis_set(cache_key, results)
+                
+            if results:
+                return results
+        
+        # 如果数据库中没有数据，尝试从内存缓存获取
+        if self.cache_mode == "memory" or not is_db_enabled():
+            memory_data = self._memory_get("prices", ticker, start_date=start_date, end_date=end_date)
+            if memory_data:
+                # 如果Redis可用，将内存数据写入Redis
+                if self.redis and cache_key:
+                    self._redis_set(cache_key, memory_data)
+                return memory_data
+                
+        # 没有找到数据
         return []
 
     @with_db_session
@@ -279,10 +275,8 @@ class PersistentCache:
         if not data:
             return False
         
-        # 更新内存缓存（如果启用）
-        if self.cache_mode == "memory":
-            self._memory_set("prices", ticker, data, "time")
-            
+        success = True
+        
         # 更新Redis缓存（如果可用）
         if self.redis:
             # 清除相关的Redis缓存
@@ -290,58 +284,68 @@ class PersistentCache:
             try:
                 for key in self.redis.scan_iter(pattern):
                     self.redis.delete(key)
-            except Exception as e:
-                logger.warning(f"清除Redis缓存时出错: {e}")
-                
-        # 如果数据库未启用，返回True（因为内存/Redis缓存已更新）
-        if not db:
-            return True
-            
-        try:
-            # 遍历数据项并保存到数据库
-            for item in data:
-                time_val = item['time']
-                
-                # 查找现有记录
-                existing = db.query(db_models.Price).filter(
-                    db_models.Price.ticker == ticker,
-                    db_models.Price.time == time_val
-                ).first()
-                
-                if existing and not force_update:
-                    # 记录已存在且不强制更新
-                    continue
                     
-                if existing:
-                    # 更新现有记录
-                    existing.open = item.get('open')
-                    existing.close = item.get('close')
-                    existing.high = item.get('high')
-                    existing.low = item.get('low')
-                    existing.volume = item.get('volume')
-                    existing.updated_at = datetime.utcnow()
-                else:
-                    # 创建新记录
-                    new_record = db_models.Price(
-                        ticker=ticker,
-                        time=time_val,
-                        open=item.get('open'),
-                        close=item.get('close'),
-                        high=item.get('high'),
-                        low=item.get('low'),
-                        volume=item.get('volume')
-                    )
-                    db.add(new_record)
+                # 更新通用缓存
+                cache_key = generate_cache_key("prices", ticker=ticker)
+                self._redis_set(cache_key, data)
+            except Exception as e:
+                logger.warning(f"更新Redis缓存时出错: {e}")
+                success = False
+                
+        # 更新数据库（如果可用）
+        db_success = True
+        if db:
+            try:
+                # 遍历数据项并保存到数据库
+                for item in data:
+                    time_val = item['time']
+                    
+                    # 查找现有记录
+                    existing = db.query(db_models.Price).filter(
+                        db_models.Price.ticker == ticker,
+                        db_models.Price.time == time_val
+                    ).first()
+                    
+                    if existing and not force_update:
+                        # 记录已存在且不强制更新
+                        continue
+                        
+                    if existing:
+                        # 更新现有记录
+                        existing.open = item.get('open')
+                        existing.close = item.get('close')
+                        existing.high = item.get('high')
+                        existing.low = item.get('low')
+                        existing.volume = item.get('volume')
+                        existing.updated_at = datetime.utcnow()
+                    else:
+                        # 创建新记录
+                        new_record = db_models.Price(
+                            ticker=ticker,
+                            time=time_val,
+                            open=item.get('open'),
+                            close=item.get('close'),
+                            high=item.get('high'),
+                            low=item.get('low'),
+                            volume=item.get('volume')
+                        )
+                        db.add(new_record)
+                
+                # 提交事务
+                db.commit()
+            except Exception as e:
+                if db:
+                    db.rollback()
+                logger.error(f"保存价格数据到数据库时出错: {e}")
+                db_success = False
+        
+        # 如果数据库不可用或写入失败，则更新内存缓存
+        if not db or not db_success:
+            self._memory_set("prices", ticker, data, "time")
+            logger.info(f"数据库不可用或写入失败，已将价格数据存入内存缓存: {ticker}")
             
-            # 提交事务
-            db.commit()
-            return True
-            
-        except Exception as e:
-            if db:
-                db.rollback()
-            logger.error(f"保存价格数据时出错: {e}")
-            return False
+        # 只要有一个存储方式成功，就视为操作成功
+        return success or db_success or (not db and not self.redis)
     
     @with_db_session
     def get_financial_metrics(self, ticker: str, end_date: Optional[str] = None, period: str = 'ttm', limit: int = 10, db: Session = None) -> List[Dict[str, Any]]:
@@ -366,19 +370,7 @@ class PersistentCache:
             if cached_data:
                 return cached_data
         
-        # 尝试从内存缓存获取
-        if self.cache_mode == "memory" and not is_db_enabled():
-            memory_data = self._memory_get("financial_metrics", ticker, end_date=end_date, limit=limit)
-            if memory_data:
-                # 过滤period
-                memory_data = [item for item in memory_data if item.get("period") == period]
-                if memory_data:
-                    # 如果Redis可用，将内存数据写入Redis  
-                    if self.redis and cache_key:
-                        self._redis_set(cache_key, memory_data)
-                    return memory_data
-                
-        # 从数据库获取
+        # 从数据库获取（如果可用）
         if db:
             query = db.query(db_models.FinancialMetric).filter(
                 db_models.FinancialMetric.ticker == ticker,
@@ -399,15 +391,24 @@ class PersistentCache:
                             if not c.name.startswith('_') and c.name not in ('id', 'created_at', 'updated_at')}
                 results.append(item_dict)
                 
-            # 存入Redis缓存
+            # 如果有结果，更新Redis缓存
             if results and self.redis and cache_key:
                 self._redis_set(cache_key, results)
                 
-            # 存入内存缓存
-            if results and self.cache_mode == "memory":
-                self._memory_set("financial_metrics", ticker, results, "report_period")
-                
-            return results
+            if results:
+                return results
+        
+        # 尝试从内存缓存获取（如果数据库不可用或没有数据）
+        if self.cache_mode == "memory" or not is_db_enabled():
+            memory_data = self._memory_get("financial_metrics", ticker, end_date=end_date, limit=limit)
+            if memory_data:
+                # 过滤period
+                memory_data = [item for item in memory_data if item.get("period") == period]
+                if memory_data:
+                    # 如果Redis可用，将内存数据写入Redis  
+                    if self.redis and cache_key:
+                        self._redis_set(cache_key, memory_data)
+                    return memory_data
             
         return []
 
@@ -748,16 +749,16 @@ class PersistentCache:
             return cached_data
             
         # 从数据库获取
-        query = db.query(db_models.CompanyNews).filter(db_models.CompanyNews.ticker == ticker)
+        query = db.query(db_models.News).filter(db_models.News.ticker == ticker)
         
         if start_date:
-            query = query.filter(db_models.CompanyNews.date >= start_date)
+            query = query.filter(db_models.News.date >= start_date)
             
         if end_date:
-            query = query.filter(db_models.CompanyNews.date <= end_date)
+            query = query.filter(db_models.News.date <= end_date)
             
         # 按日期排序，最新的排在前面
-        db_results = query.order_by(db_models.CompanyNews.date.desc()).all()
+        db_results = query.order_by(db_models.News.date.desc()).all()
         
         # 转换为字典列表
         results = []
@@ -797,17 +798,17 @@ class PersistentCache:
                 url = item.get('url')
                 
                 # 构建查询
-                query = db.query(db_models.CompanyNews).filter(
-                    db_models.CompanyNews.ticker == ticker,
-                    db_models.CompanyNews.date == date
+                query = db.query(db_models.News).filter(
+                    db_models.News.ticker == ticker,
+                    db_models.News.date == date
                 )
                 
                 # 如果有URL，用URL作为唯一标识
                 if url:
-                    query = query.filter(db_models.CompanyNews.url == url)
+                    query = query.filter(db_models.News.url == url)
                 else:
                     # 否则使用标题作为标识
-                    query = query.filter(db_models.CompanyNews.title == title)
+                    query = query.filter(db_models.News.title == title)
                 
                 existing = query.first()
                 
@@ -827,8 +828,8 @@ class PersistentCache:
                     existing.updated_at = datetime.utcnow()
                 else:
                     # 创建新记录
-                    filtered_data = {k: v for k, v in item_data.items() if hasattr(db_models.CompanyNews, k)}
-                    new_record = db_models.CompanyNews(**filtered_data)
+                    filtered_data = {k: v for k, v in item_data.items() if hasattr(db_models.News, k)}
+                    new_record = db_models.News(**filtered_data)
                     db.add(new_record)
             
             # 提交事务
@@ -884,6 +885,36 @@ class PersistentCache:
             logger.error(f"刷新缓存时出错 ({data_type}, {ticker}): {e}")
             return False
 
+    @with_db_session
+    def get_all_tickers(self, db: Session = None) -> List[str]:
+        """获取数据库中所有唯一的股票代码
+        
+        Args:
+            db: 数据库会话
+            
+        Returns:
+            List[str]: 唯一股票代码列表
+        """
+        # 获取新闻表中的股票
+        news_tickers = db.query(db_models.News.ticker).distinct().all()
+        
+        # 获取价格表中的股票
+        price_tickers = db.query(db_models.Price.ticker).distinct().all()
+        
+        # 获取财务指标表中的股票
+        metrics_tickers = db.query(db_models.FinancialMetric.ticker).distinct().all()
+        
+        # 获取内部交易表中的股票
+        insider_tickers = db.query(db_models.InsiderTrade.ticker).distinct().all()
+        
+        # 合并并去重
+        all_tickers = set()
+        for t in news_tickers + price_tickers + metrics_tickers + insider_tickers:
+            all_tickers.add(t[0])
+        
+        # 返回排序后的列表
+        return sorted(list(all_tickers))
+
 # 全局缓存实例
 _cache = PersistentCache()
 
@@ -892,12 +923,20 @@ def get_cache() -> PersistentCache:
     return _cache
 
 def init_cache():
-    """初始化缓存，确保数据库和Redis连接正常"""
-    from data.database import init_db
+    """初始化缓存，确保数据库和Redis连接正常
     
-    # 如果AUTO_INITIALIZE为false，尝试初始化数据库
-    # 否则数据库已在导入时自动初始化
+    返回PersistentCache实例，可以用于数据存取
+    """
+    global _cache
+    
+    # 确保数据库已初始化
+    from data.database import init_db, get_cache_mode
     init_db()
     
-    # 重新获取全局缓存实例（因为数据库状态可能已更改）
-    return get_cache()
+    # 重置全局缓存实例以反映最新的数据库状态
+    _cache = PersistentCache()
+    
+    # 输出当前缓存模式
+    logger.info(f"缓存系统已初始化，当前模式: {get_cache_mode()}")
+    
+    return _cache

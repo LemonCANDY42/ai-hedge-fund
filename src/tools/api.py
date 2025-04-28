@@ -259,7 +259,7 @@ def get_market_cap(
         prices = get_prices(ticker, start_date=prev_date, end_date=end_date)
         if not prices:
             return None
-    
+            
     # 使用最近的价格和财务指标计算市值
     price = prices[-1].close
     

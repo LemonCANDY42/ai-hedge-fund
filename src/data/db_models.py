@@ -3,10 +3,15 @@ from sqlalchemy import Column, Integer, Float, String, DateTime, Boolean, Foreig
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 
-from data.database import BaseModel
-
 # 创建SQLAlchemy基类
 Base = declarative_base()
+
+# 直接在此文件中定义BaseModel，而不是从database.py导入
+class BaseModel:
+    """所有模型的基类"""
+    id = Column(Integer, primary_key=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 class Price(Base, BaseModel):
     """
@@ -134,7 +139,7 @@ class News(Base, BaseModel):
     summary = Column(Text)
     source = Column(String(128))
     url = Column(String(512))
-    sentiment = Column(Float, nullable=True)  # 情感分数，范围通常为 -1.0 到 1.0
+    sentiment = Column(String(32), nullable=True)  # 情感值，可以是数值或描述（'positive', 'negative', 'neutral'）
     
     # 元数据和附加信息
     categories = Column(JSON, nullable=True)  # 主题分类，如 "盈利报告"、"管理变更" 等

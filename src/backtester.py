@@ -24,7 +24,7 @@ from tools.api import (
     refresh_data,
 )
 from data.cache import init_cache
-from data.database import init_db
+from data.database import init_db, set_cache_mode
 from data.cache_manager import get_cache_manager
 from utils.display import print_backtest_results, format_backtest_row
 from typing_extensions import Callable
@@ -35,11 +35,18 @@ init(autoreset=True)
 
 # 初始化数据库和缓存系统
 try:
+    # 设置缓存模式为优先使用SQLite
+    set_cache_mode('sqlite')
+    # 初始化数据库
     init_db()
+    # 初始化缓存
     init_cache()
-    print(f"{Fore.CYAN}Database and cache system initialized for backtesting.{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}数据库和缓存系统已初始化，优先使用SQLite进行数据持久化。{Style.RESET_ALL}")
 except Exception as e:
-    print(f"{Fore.RED}Warning: Failed to initialize database or cache system: {e}{Style.RESET_ALL}")
+    print(f"{Fore.RED}警告: 初始化数据库或缓存系统失败: {e}{Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}尝试使用内存缓存模式继续运行...{Style.RESET_ALL}")
+    set_cache_mode('memory')
+    init_cache()
 
 
 class Backtester:
@@ -286,10 +293,7 @@ class Backtester:
         return total_value
 
     def prefetch_data(self):
-        """
-        Pre-fetch all financial data needed for the backtest period.
-        Returns a dictionary of results for each type of data.
-        """
+        """预取所有回测期间所需的数据。"""
         try:
             cache_manager = get_cache_manager()
             results = {}
@@ -302,7 +306,7 @@ class Backtester:
                     start_date=self.start_date, 
                     end_date=self.end_date
                 )
-                
+
                 # 检查是否存在价格数据缺口
                 price_data, missing_dates = cache_manager.fill_missing_price_data(
                     ticker, 

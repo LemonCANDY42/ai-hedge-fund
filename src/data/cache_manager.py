@@ -120,52 +120,68 @@ class CacheManager:
         stats = {}
         
         # 获取价格数据统计
-        prices = self.cache.get_prices(ticker)
-        if prices:
-            dates = [p['time'].split('T')[0] for p in prices]
-            stats['prices'] = {
-                'count': len(prices),
-                'earliest_date': min(dates),
-                'latest_date': max(dates)
-            }
-        else:
-            stats['prices'] = {'count': 0}
+        try:
+            prices = self.cache.get_prices(ticker)
+            if prices:
+                dates = [p['time'].split('T')[0] for p in prices]
+                stats['prices'] = {
+                    'count': len(prices),
+                    'earliest_date': min(dates),
+                    'latest_date': max(dates)
+                }
+            else:
+                stats['prices'] = {'count': 0}
+        except Exception as e:
+            logger.warning(f"获取价格数据统计时出错: {e}")
+            stats['prices'] = {'count': 0, 'error': str(e)}
             
         # 获取财务指标统计
-        metrics = self.cache.get_financial_metrics(ticker)
-        if metrics:
-            periods = [m['report_period'] for m in metrics]
-            stats['financial_metrics'] = {
-                'count': len(metrics),
-                'earliest_period': min(periods),
-                'latest_period': max(periods)
-            }
-        else:
-            stats['financial_metrics'] = {'count': 0}
+        try:
+            metrics = self.cache.get_financial_metrics(ticker)
+            if metrics:
+                periods = [m['report_period'] for m in metrics]
+                stats['financial_metrics'] = {
+                    'count': len(metrics),
+                    'earliest_period': min(periods),
+                    'latest_period': max(periods)
+                }
+            else:
+                stats['financial_metrics'] = {'count': 0}
+        except Exception as e:
+            logger.warning(f"获取财务指标统计时出错: {e}")
+            stats['financial_metrics'] = {'count': 0, 'error': str(e)}
             
         # 获取内部交易统计
-        trades = self.cache.get_insider_trades(ticker)
-        if trades:
-            filing_dates = [t['filing_date'].split('T')[0] for t in trades]
-            stats['insider_trades'] = {
-                'count': len(trades),
-                'earliest_date': min(filing_dates),
-                'latest_date': max(filing_dates)
-            }
-        else:
-            stats['insider_trades'] = {'count': 0}
+        try:
+            trades = self.cache.get_insider_trades(ticker)
+            if trades:
+                filing_dates = [t['filing_date'].split('T')[0] for t in trades]
+                stats['insider_trades'] = {
+                    'count': len(trades),
+                    'earliest_date': min(filing_dates),
+                    'latest_date': max(filing_dates)
+                }
+            else:
+                stats['insider_trades'] = {'count': 0}
+        except Exception as e:
+            logger.warning(f"获取内部交易统计时出错: {e}")
+            stats['insider_trades'] = {'count': 0, 'error': str(e)}
             
         # 获取公司新闻统计
-        news = self.cache.get_company_news(ticker)
-        if news:
-            dates = [n['date'] for n in news]
-            stats['company_news'] = {
-                'count': len(news),
-                'earliest_date': min(dates),
-                'latest_date': max(dates)
-            }
-        else:
-            stats['company_news'] = {'count': 0}
+        try:
+            news = self.cache.get_company_news(ticker)
+            if news:
+                dates = [n['date'] for n in news]
+                stats['company_news'] = {
+                    'count': len(news),
+                    'earliest_date': min(dates),
+                    'latest_date': max(dates)
+                }
+            else:
+                stats['company_news'] = {'count': 0}
+        except Exception as e:
+            logger.warning(f"获取公司新闻统计时出错: {e}")
+            stats['company_news'] = {'count': 0, 'error': str(e)}
             
         return stats
     

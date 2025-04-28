@@ -107,6 +107,9 @@ class CompanyNews(BaseModel):
     date: str
     url: str
     sentiment: str | None = None
+    summary: str | None = None
+    categories: list[str] | None = None
+    entities: dict[str, list[str]] | None = None
 
 
 class CompanyNewsResponse(BaseModel):
