@@ -21,7 +21,7 @@ This system employs several agents working together:
 15. Portfolio Manager - Makes final trading decisions and generates orders
     
 
-<img width="1042" alt="Screenshot 2025-03-22 at 6 19 07 PM" src="https://github.com/user-attachments/assets/cbae3dcf-b571-490d-b0ad-3f0f035ac0d4" />
+<img width="1042" alt="Screenshot 2025-03-22 at 6 19 07 PM" src="https://github.com/user-attachments/assets/cbae3dcf-b571-490d-b0ad-3f0f035ac0d4" />
 
 **Note**: the system simulates trading decisions, it does not actually trade.
 
@@ -49,6 +49,7 @@ By using this software, you agree to use it solely for learning purposes.
 - [Usage](#usage)
   - [Running the Hedge Fund](#running-the-hedge-fund)
   - [Running the Backtester](#running-the-backtester)
+  - [Running the News Enhancer](#running-the-news-enhancer)
 - [Project Structure](#project-structure)
 - [Contributing](#contributing)
 - [Feature Requests](#feature-requests)
@@ -122,7 +123,7 @@ poetry run python src/main.py --ticker AAPL,MSFT,NVDA
 ```
 
 **Example Output:**
-<img width="992" alt="Screenshot 2025-01-06 at 5 50 17 PM" src="https://github.com/user-attachments/assets/e8ca04bf-9989-4a7d-a8b4-34e04666663b" />
+<img width="992" alt="Screenshot 2025-01-06 at 5 50 17 PM" src="https://github.com/user-attachments/assets/e8ca04bf-9989-4a7d-a8b4-34e04666663b" />
 
 You can also specify a `--ollama` flag to run the AI hedge fund using local LLMs.
 
@@ -154,7 +155,7 @@ poetry run python src/backtester.py --ticker AAPL,MSFT,NVDA
 ```
 
 **Example Output:**
-<img width="941" alt="Screenshot 2025-01-06 at 5 47 52 PM" src="https://github.com/user-attachments/assets/00e794ea-8628-44e6-9a84-8f8a31ad3b47" />
+<img width="941" alt="Screenshot 2025-01-06 at 5 47 52 PM" src="https://github.com/user-attachments/assets/00e794ea-8628-44e6-9a84-8f8a31ad3b47" />
 
 
 You can optionally specify the start and end dates to backtest over a specific time period.
@@ -173,6 +174,56 @@ You can also specify a `--lmstudio` flag to run the backtester using LM Studio f
 poetry run python src/backtester.py --ticker AAPL,MSFT,NVDA --lmstudio
 ```
 
+### Running the News Enhancer
+
+The news enhancer tool uses LLMs to analyze and enhance company news data, providing more accurate summaries, entity recognition, and categorization by extracting content from news URLs.
+
+#### Prerequisites
+
+Install additional dependencies required for the news enhancer:
+```bash
+poetry add beautifulsoup4 requests
+```
+
+#### Enhancing News Data
+
+To enhance news data for specific stocks:
+```bash
+poetry run python src/news_enhancer_tool.py enhance AAPL
+```
+
+You can enhance multiple stocks at once:
+```bash
+poetry run python src/news_enhancer_tool.py enhance all --tickers AAPL,MSFT,NVDA
+```
+
+Optional parameters:
+```bash
+--start-date YYYY-MM-DD    # Start date for news (default: 90 days ago)
+--end-date YYYY-MM-DD      # End date for news (default: today)
+--limit N                  # Maximum number of news items to enhance per ticker
+--force-update             # Force update existing enhanced data
+--batch-size N             # Number of news items to process in each LLM call
+--no-content               # Don't fetch article content, use only titles
+--model-name NAME          # Specify LLM model name
+--model-provider PROVIDER  # Specify LLM model provider
+--yes, -y                  # Automatically confirm all prompts
+```
+
+#### Checking Enhancement Status
+
+To check the enhancement status of news data:
+```bash
+poetry run python src/news_enhancer_tool.py check AAPL
+```
+
+Optional parameters:
+```bash
+--start-date YYYY-MM-DD    # Start date for news (default: 90 days ago)
+--end-date YYYY-MM-DD      # End date for news (default: today)
+--show-samples             # Show sample news items and their enhancement status
+--verbose, -v              # Show detailed information
+```
 
 ## Project Structure 
 ```

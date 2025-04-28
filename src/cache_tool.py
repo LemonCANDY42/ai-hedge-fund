@@ -1,20 +1,24 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 命令行工具用于管理金融数据缓存和持久存储
 """
 import argparse
 import logging
 import sys
+import os
 from datetime import datetime, timedelta
 from colorama import Fore, Style, init
 
-from data.cache import init_cache
+from data.cache import init_cache, get_cache
 from data.database import init_db
 from data.cache_manager import get_cache_manager
 from tools.api import refresh_data, check_and_fill_data
 
 # 初始化colorama
 init(autoreset=True)
+
+# 确保news_enhancer_tool可用
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # 设置日志
 logging.basicConfig(level=logging.INFO, 
@@ -224,6 +228,17 @@ def main():
     clear_parser = subparsers.add_parser("clear", help="清除Redis缓存")
     clear_parser.add_argument("ticker", help="股票代码或 'all' 表示所有")
     
+    # enhance-news命令
+    enhance_news_parser = subparsers.add_parser("enhance-news", help="增强新闻数据，添加摘要、实体和分类")
+    enhance_news_parser.add_argument("ticker", help="股票代码，或'all'表示所有股票")
+    enhance_news_parser.add_argument("--start-date", help="开始日期 (YYYY-MM-DD)，默认为3个月前")
+    enhance_news_parser.add_argument("--end-date", help="结束日期 (YYYY-MM-DD)，默认为今天")
+    enhance_news_parser.add_argument("--limit", type=int, help="每个股票处理的新闻项数量上限")
+    enhance_news_parser.add_argument("--force-update", action="store_true", help="强制更新现有的增强数据")
+    enhance_news_parser.add_argument("--model", help="LLM模型名称（默认使用Ollama的本地模型）")
+    enhance_news_parser.add_argument("--tickers", help="逗号分隔的股票代码列表（当ticker='all'时使用）")
+    enhance_news_parser.add_argument("--yes", "-y", action="store_true", help="自动确认所有提示")
+    
     args = parser.parse_args()
     
     # 如果没有指定子命令，显示帮助信息
@@ -244,6 +259,11 @@ def main():
         check_data(args)
     elif args.command == "clear":
         clear_cache(args)
+    elif args.command == "enhance-news":
+        # 调用news_enhancer_tool中的功能
+        from news_enhancer_tool import enhance_news
+        # 转换args为news_enhancer_tool能理解的格式
+        enhance_news(args)
 
 if __name__ == "__main__":
     main() 

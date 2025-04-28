@@ -137,6 +137,7 @@ class News(Base, BaseModel):
     # 新闻详情
     title = Column(String(256))
     summary = Column(Text)
+    author = Column(String(128), nullable=True)
     source = Column(String(128))
     url = Column(String(512))
     sentiment = Column(String(32), nullable=True)  # 情感值，可以是数值或描述（'positive', 'negative', 'neutral'）

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 命令行工具用于增强新闻数据
-这个工具可以使用LLM对公司新闻数据进行增强，添加摘要、实体识别和分类。
+这个工具可以使用LLM对公司新闻数据进行增强，通过从URL获取原始新闻内容，提供更准确的摘要、实体识别和分类。
 """
 
 import argparse
@@ -237,6 +237,13 @@ def enhance_news(args):
     
     print(f"使用模型: {model_name} ({model_provider})")
     
+    # 处理URL内容获取选项
+    no_content = args.no_content
+    if no_content:
+        print(f"{Fore.YELLOW}已禁用URL内容获取，将仅使用标题进行增强{Style.RESET_ALL}")
+    else:
+        print(f"{Fore.CYAN}将从URL获取新闻内容进行更准确的增强{Style.RESET_ALL}")
+    
     # 处理刷新选项
     force_update = args.force_update
     
@@ -274,7 +281,8 @@ def enhance_news(args):
             model_provider=model_provider,
             limit=limit,
             force_update=force_update,
-            batch_size=batch_size
+            batch_size=batch_size,
+            no_content=no_content
         )
         
         if result:
@@ -341,7 +349,8 @@ def enhance_news(args):
             model_provider=model_provider,
             limit_per_ticker=limit,
             force_update=force_update,
-            batch_size=batch_size
+            batch_size=batch_size,
+            no_content=no_content
         )
         
         # 显示结果
@@ -427,6 +436,7 @@ def main():
     enhance_parser.add_argument("--model-provider", help="LLM模型提供商（如不提供则交互式选择）")
     enhance_parser.add_argument("--tickers", help="逗号分隔的股票代码列表（当ticker='all'时使用）")
     enhance_parser.add_argument("--yes", "-y", action="store_true", help="自动确认所有提示")
+    enhance_parser.add_argument("--no-content", action="store_true", help="不从URL获取新闻内容，仅使用标题")
     
     # check命令
     check_parser = subparsers.add_parser("check", help="检查新闻数据增强状态")
@@ -442,6 +452,7 @@ def main():
     if not args.command:
         parser.print_help()
         return
+    
     
     # 确保数据库和缓存系统已初始化
     initialize_db()

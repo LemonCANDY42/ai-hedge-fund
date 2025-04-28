@@ -372,16 +372,16 @@ class PersistentCache:
         
         # 从数据库获取（如果可用）
         if db:
-            query = db.query(db_models.FinancialMetric).filter(
-                db_models.FinancialMetric.ticker == ticker,
-                db_models.FinancialMetric.period == period
+            query = db.query(db_models.FinancialMetrics).filter(
+                db_models.FinancialMetrics.ticker == ticker,
+                db_models.FinancialMetrics.period == period
             )
             
             if end_date:
-                query = query.filter(db_models.FinancialMetric.report_period <= end_date)
+                query = query.filter(db_models.FinancialMetrics.report_period <= end_date)
                 
             # 按报告期排序，最新的排在前面
-            db_results = query.order_by(db_models.FinancialMetric.report_period.desc()).limit(limit).all()
+            db_results = query.order_by(db_models.FinancialMetrics.report_period.desc()).limit(limit).all()
             
             # 转换为字典列表
             results = []
@@ -435,10 +435,10 @@ class PersistentCache:
                 period = item.get('period', 'ttm')
                 
                 # 查找现有记录
-                existing = db.query(db_models.FinancialMetric).filter(
-                    db_models.FinancialMetric.ticker == ticker,
-                    db_models.FinancialMetric.report_period == report_period,
-                    db_models.FinancialMetric.period == period
+                existing = db.query(db_models.FinancialMetrics).filter(
+                    db_models.FinancialMetrics.ticker == ticker,
+                    db_models.FinancialMetrics.report_period == report_period,
+                    db_models.FinancialMetrics.period == period
                 ).first()
                 
                 if existing and not force_update:
@@ -454,8 +454,8 @@ class PersistentCache:
                 else:
                     # 创建新记录
                     # 从item中过滤出与模型相匹配的字段
-                    filtered_item = {k: v for k, v in item.items() if hasattr(db_models.FinancialMetric, k)}
-                    new_record = db_models.FinancialMetric(**filtered_item)
+                    filtered_item = {k: v for k, v in item.items() if hasattr(db_models.FinancialMetrics, k)}
+                    new_record = db_models.FinancialMetrics(**filtered_item)
                     db.add(new_record)
             
             # 提交事务
@@ -902,7 +902,7 @@ class PersistentCache:
         price_tickers = db.query(db_models.Price.ticker).distinct().all()
         
         # 获取财务指标表中的股票
-        metrics_tickers = db.query(db_models.FinancialMetric.ticker).distinct().all()
+        metrics_tickers = db.query(db_models.FinancialMetrics.ticker).distinct().all()
         
         # 获取内部交易表中的股票
         insider_tickers = db.query(db_models.InsiderTrade.ticker).distinct().all()

@@ -4,6 +4,7 @@
 
 import os
 import time
+import requests
 from typing import List, Dict, Any, Optional
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
@@ -14,6 +15,8 @@ from tools.api import get_company_news, refresh_data
 from llm.models import get_model_info, ModelProvider
 from utils.llm import call_llm
 from utils.progress import progress
+from bs4 import BeautifulSoup
+import re
 
 # 全局缓存实例
 _cache = get_cache()
@@ -24,9 +27,54 @@ class EnhancedNewsItem(BaseModel):
     ticker: str = Field(..., description="股票代码")
     title: str = Field(..., description="标题")
     summary: str = Field(..., description="文章内容的摘要，包含关键信息")
-    sentiment: str = Field(..., description="情感分析，例如：'positive', 'negative', 'neutral'")
     categories: List[str] = Field(..., description="新闻分类，例如：['财报', '管理层变动', '产品发布']")
     entities: Dict[str, List[str]] = Field(..., description="提到的实体，按类型分组，例如：{'人物': ['CEO名'], '公司': ['竞争对手'], '地点': ['国家/地区']}")
+
+
+def get_article_content(url: str) -> str:
+    """
+    从URL获取文章内容
+    
+    Args:
+        url: 新闻文章URL
+        
+    Returns:
+        str: 提取的文章内容
+    """
+    if not url or url == "#":
+        return ""
+    
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        
+        # 使用BeautifulSoup解析HTML
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # 移除脚本、样式和导航元素
+        for script in soup(["script", "style", "nav", "header", "footer", "aside"]):
+            script.extract()
+        
+        # 获取正文段落
+        paragraphs = soup.find_all('p')
+        
+        # 提取和清理文本
+        text = ' '.join([p.get_text().strip() for p in paragraphs])
+        
+        # 清理额外的空白字符
+        text = re.sub(r'\s+', ' ', text).strip()
+        
+        # 如果内容太长，截取前1500个字符
+        if len(text) > 1500:
+            text = text[:1500] + "..."
+            
+        return text
+    except Exception as e:
+        print(f"获取文章内容时出错: {url} - {e}")
+        return ""
 
 
 def enhance_news_with_llm(
@@ -63,27 +111,25 @@ def enhance_news_with_llm(
     
     # 创建提示模板
     prompt_template = ChatPromptTemplate.from_template("""
-    你是一个新闻分析专家，需要完成对以下新闻的分析和信息提取。请根据新闻标题和来源，推断可能的内容，并提供以下信息：
+    你是一个新闻分析专家，需要完成对以下新闻的分析和信息提取。请根据新闻标题和内容，提供以下信息：
     
-    1. 标题的摘要/扩展内容理解
-    2. 情感分析（正面positive、负面negative或中性neutral）
-    3. 新闻分类（财报、管理层变动、产品发布等）
-    4. 相关实体提取（人物、公司、地点等）
+    1. 文章内容的详细摘要（基于提供的内容）
+    2. 新闻分类（财报、管理层变动、产品发布等）
+    3. 相关实体提取（人物、公司、地点等）
     
-    请基于标题内容进行合理推断，对没有把握的部分给出保守估计。
+    请不要分析情感倾向，只关注事实内容。
     
     新闻信息:
     股票代码: {ticker}
     标题: {title}
     来源: {source}
     日期: {date}
-    链接: {url}
+    内容摘录: {content}
     
     请以JSON格式回答，包含以下字段:
     - ticker: 股票代码
     - title: 标题
-    - summary: 推断的内容摘要
-    - sentiment: 情感分析结果("positive", "negative", "neutral")
+    - summary: 内容摘要
     - categories: 新闻分类的字符串列表
     - entities: 包含不同类型实体的对象，key为实体类型，value为该类型的实体列表
     """)
@@ -94,13 +140,17 @@ def enhance_news_with_llm(
         
         for news_item in batch:
             try:
+                # 获取文章内容
+                progress.update_status("news_enhancer", news_item.ticker, f"获取新闻内容 ({processed_count+1}/{total_count})")
+                article_content = get_article_content(news_item.url or "")
+                
                 # 构建提示
                 prompt = prompt_template.format(
                     ticker=news_item.ticker,
                     title=news_item.title,
-                    source=news_item.source,
+                    source=news_item.source or "未知来源",
                     date=news_item.date,
-                    url=news_item.url
+                    content=article_content or f"无法获取内容。标题：{news_item.title}"
                 )
                 
                 # 调用LLM
@@ -115,15 +165,15 @@ def enhance_news_with_llm(
                     agent_name="news_enhancer"
                 )
                 
-                # 更新缓存条目
+                # 更新缓存条目，保留原有的sentiment值
                 enhanced_item = {
                     "ticker": news_item.ticker,
                     "title": news_item.title,
-                    "author": news_item.author,
-                    "source": news_item.source,
+                    "author": news_item.author or "",
+                    "source": news_item.source or "",
                     "date": news_item.date,
-                    "url": news_item.url,
-                    "sentiment": result.sentiment,
+                    "url": news_item.url or "",
+                    "sentiment": news_item.sentiment,  # 保留原有的情感值
                     "summary": result.summary,
                     "categories": result.categories,
                     "entities": result.entities
@@ -142,11 +192,11 @@ def enhance_news_with_llm(
                 enhanced_items.append({
                     "ticker": news_item.ticker,
                     "title": news_item.title,
-                    "author": news_item.author,
-                    "source": news_item.source,
+                    "author": news_item.author or "",
+                    "source": news_item.source or "",
                     "date": news_item.date,
-                    "url": news_item.url,
-                    "sentiment": news_item.sentiment or "neutral",
+                    "url": news_item.url or "",
+                    "sentiment": news_item.sentiment,  # 保留原有的情感值
                     "summary": f"摘要: {news_item.title}",
                     "categories": ["未分类"],
                     "entities": {"公司": [news_item.ticker]}
@@ -199,7 +249,8 @@ def enhance_ticker_news(
     model_provider: str = ModelProvider.OLLAMA.value,
     limit: Optional[int] = None,
     force_update: bool = False,
-    batch_size: int = 1
+    batch_size: int = 1,
+    no_content: bool = False
 ) -> bool:
     """
     增强特定股票的新闻数据
@@ -213,6 +264,7 @@ def enhance_ticker_news(
         limit: 处理的新闻项数量上限
         force_update: 是否强制更新，即使记录已存在
         batch_size: 批处理大小
+        no_content: 是否禁用URL内容获取功能
         
     Returns:
         bool: 操作是否成功
@@ -225,17 +277,29 @@ def enhance_ticker_news(
             print(f"没有找到 {ticker} 在指定时间范围内的新闻")
             return False
         
-        # 增强新闻数据
-        enhanced_items = enhance_news_with_llm(
-            news_items, 
-            model_name, 
-            model_provider, 
-            limit, 
-            batch_size
-        )
+        # 如果禁用内容获取，修改get_article_content功能
+        if no_content:
+            # 临时替换get_article_content函数
+            global get_article_content
+            original_func = get_article_content
+            get_article_content = lambda url: ""
         
-        # 更新缓存和数据库
-        return update_news_with_enhancements(enhanced_items, force_update)
+        try:
+            # 增强新闻数据
+            enhanced_items = enhance_news_with_llm(
+                news_items, 
+                model_name, 
+                model_provider, 
+                limit, 
+                batch_size
+            )
+            
+            # 更新缓存和数据库
+            return update_news_with_enhancements(enhanced_items, force_update)
+        finally:
+            # 如果禁用了内容获取，恢复原始函数
+            if no_content:
+                get_article_content = original_func
         
     except Exception as e:
         print(f"增强 {ticker} 新闻时出错: {e}")
@@ -250,7 +314,8 @@ def enhance_multiple_tickers(
     model_provider: str = ModelProvider.OLLAMA.value,
     limit_per_ticker: Optional[int] = None,
     force_update: bool = False,
-    batch_size: int = 1
+    batch_size: int = 1,
+    no_content: bool = False
 ) -> Dict[str, bool]:
     """
     增强多个股票的新闻数据
@@ -264,6 +329,7 @@ def enhance_multiple_tickers(
         limit_per_ticker: 每个股票处理的新闻项数量上限
         force_update: 是否强制更新，即使记录已存在
         batch_size: 批处理大小
+        no_content: 是否禁用URL内容获取功能
         
     Returns:
         Dict[str, bool]: 每个股票的操作结果
@@ -280,7 +346,8 @@ def enhance_multiple_tickers(
             model_provider, 
             limit_per_ticker, 
             force_update,
-            batch_size
+            batch_size,
+            no_content
         )
         results[ticker] = result
         print(f"增强 {ticker} 的新闻数据{'成功' if result else '失败'}")
