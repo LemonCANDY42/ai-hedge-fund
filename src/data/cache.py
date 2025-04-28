@@ -813,21 +813,27 @@ class PersistentCache:
                 existing = query.first()
                 
                 if existing and not force_update:
-                    # 记录已存在且不强制更新
-                    continue
-                    
-                # 为数据库记录准备数据
-                item_data = item.copy()
-                item_data['ticker'] = ticker  # 确保ticker正确
-                
-                if existing:
-                    # 更新现有记录
-                    for key, value in item_data.items():
+                    # 记录已存在且不强制更新，只填补为空的字段
+                    for key, value in item.items():
+                        if hasattr(existing, key) and getattr(existing, key) is None and value is not None:
+                            setattr(existing, key, value)
+                        elif key == 'summary' and not getattr(existing, 'summary') and value:
+                            setattr(existing, 'summary', value)
+                        elif key == 'categories' and not getattr(existing, 'categories') and value:
+                            setattr(existing, 'categories', value)
+                        elif key == 'entities' and not getattr(existing, 'entities') and value:
+                            setattr(existing, 'entities', value)
+                    existing.updated_at = datetime.utcnow()
+                elif existing and force_update:
+                    # 强制更新，更新所有字段
+                    for key, value in item.items():
                         if hasattr(existing, key):
                             setattr(existing, key, value)
                     existing.updated_at = datetime.utcnow()
                 else:
                     # 创建新记录
+                    item_data = item.copy()
+                    item_data['ticker'] = ticker  # 确保ticker正确
                     filtered_data = {k: v for k, v in item_data.items() if hasattr(db_models.News, k)}
                     new_record = db_models.News(**filtered_data)
                     db.add(new_record)

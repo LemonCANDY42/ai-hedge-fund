@@ -214,6 +214,9 @@ def update_news_with_enhancements(
     """
     将增强的新闻数据更新到数据库和缓存
     
+    特别说明：默认情况下，此函数只会填补原来为空的数据（summary、categories、entities），
+    如果某一类别已有数据，则不会覆盖。只有在force_update=True时才会覆盖所有字段。
+    
     Args:
         enhanced_items: 增强后的新闻项列表
         force_update: 是否强制更新，即使记录已存在
@@ -223,6 +226,9 @@ def update_news_with_enhancements(
     """
     if not enhanced_items:
         return False
+    
+    # 获取缓存实例
+    cache = get_cache()
     
     # 按股票代码分组
     ticker_groups = {}
@@ -235,7 +241,46 @@ def update_news_with_enhancements(
     # 逐个股票更新缓存
     success = True
     for ticker, items in ticker_groups.items():
-        if not _cache.set_company_news(ticker, items, force_update=force_update):
+        # 先获取现有的新闻数据
+        existing_news = cache.get_company_news(ticker)
+        existing_news_map = {}
+        
+        # 构建现有数据的映射，基于标题和URL
+        for news in existing_news:
+            key = (news.get('title', ''), news.get('url', ''))
+            existing_news_map[key] = news
+        
+        # 处理每个增强项
+        for item in items:
+            title = item.get('title', '')
+            url = item.get('url', '')
+            key = (title, url)
+            
+            # 检查该新闻是否已存在
+            if key in existing_news_map:
+                existing = existing_news_map[key]
+                
+                # 只填补原来为空的数据
+                if not existing.get('summary') and item.get('summary'):
+                    existing['summary'] = item['summary']
+                
+                if not existing.get('categories') and item.get('categories'):
+                    existing['categories'] = item['categories']
+                
+                if not existing.get('entities') and item.get('entities'):
+                    existing['entities'] = item['entities']
+                
+                # 更新回处理列表中
+                existing_news_map[key] = existing
+            else:
+                # 如果新闻不存在，直接添加
+                existing_news_map[key] = item
+        
+        # 将更新后的数据转换回列表
+        updated_items = list(existing_news_map.values())
+        
+        # 更新到缓存和数据库
+        if not cache.set_company_news(ticker, updated_items, force_update=force_update):
             success = False
     
     return success

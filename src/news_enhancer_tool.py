@@ -246,6 +246,10 @@ def enhance_news(args):
     
     # 处理刷新选项
     force_update = args.force_update
+    if force_update:
+        print(f"{Fore.YELLOW}已启用强制更新，将覆盖所有现有数据{Style.RESET_ALL}")
+    else:
+        print(f"{Fore.CYAN}数据增强将只填补原来为空的字段，已有内容不会被覆盖{Style.RESET_ALL}")
     
     # 处理批处理选项
     batch_size = args.batch_size
