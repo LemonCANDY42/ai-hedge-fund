@@ -192,7 +192,8 @@ def enhance_news_with_llm(
                     "entities": result.entities,
                     # 初始化相关股票和情感字段，将在后续步骤中填充
                     "related_tickers": [],
-                    "ticker_sentiments": {}
+                    "ticker_sentiments": {},
+                    "enhancement_status": "success"  # 标记成功状态
                 }
                 
                 enhanced_items.append(enhanced_item)
@@ -204,8 +205,8 @@ def enhance_news_with_llm(
                 
             except Exception as e:
                 print(f"增强新闻时出错: {news_item.title} - {e}")
-                # 添加一个基本增强以避免跳过
-                enhanced_items.append({
+                # 添加原始条目而不是基本增强，保持原有状态以便下次补全
+                enhanced_item = {
                     "ticker": news_item.ticker,
                     "title": news_item.title,
                     "author": news_item.author or "",
@@ -213,56 +214,72 @@ def enhance_news_with_llm(
                     "date": news_item.date,
                     "url": news_item.url or "",
                     "sentiment": news_item.sentiment,  # 保留原有的情感值
-                    "summary": f"摘要: {news_item.title}",
-                    "categories": ["未分类"],
-                    "entities": {"公司": [news_item.ticker]},
-                    # 初始化相关股票和情感字段
-                    "related_tickers": [news_item.ticker],
-                    "ticker_sentiments": {
-                        news_item.ticker: {
-                            "sentiment": "neutral", 
-                            "relevance": 1.0,
-                            "reasoning": "分析过程中发生错误，使用默认中性情感"
-                        }
-                    }
-                })
+                    # 不设置summary、categories、entities字段，保持原始状态
+                    # 保持相关股票和情感字段的原有状态，而不是初始化
+                    "enhancement_status": "error"  # 标记错误状态
+                }
+                
+                enhanced_items.append(enhanced_item)
                 processed_count += 1
+    
+    # 立即将实体信息保存到数据库
+    # 这样我们可以先保存实体信息，然后再进行情感分析
+    temp_enhance_items = enhanced_items.copy()
+    progress.update_status("news_enhancer", news_items[0].ticker if news_items else "", "保存实体信息到数据库")
+    update_news_with_enhancements(temp_enhance_items, force_update=False)
     
     # 现在进行相关股票识别和情感分析
     progress.update_status("news_enhancer", news_items[0].ticker if news_items else "", "分析相关股票和情感")
     
     # 将临时字典转换为CompanyNews对象列表，用于情感分析
     analysis_items = []
-    for item in enhanced_items:
-        analysis_item = CompanyNews(
-            ticker=item["ticker"],
-            title=item["title"],
-            author=item["author"],
-            source=item["source"],
-            date=item["date"],
-            url=item["url"],
-            sentiment=item["sentiment"],
-            summary=item["summary"],
-            categories=item["categories"],
-            entities=item["entities"]
+    for i, item in enumerate(enhanced_items):
+        # 只对成功增强的新闻进行情感分析
+        if item.get("enhancement_status") == "success" and "entities" in item:
+            analysis_item = CompanyNews(
+                ticker=item["ticker"],
+                title=item["title"],
+                author=item["author"],
+                source=item["source"],
+                date=item["date"],
+                url=item["url"],
+                sentiment=item["sentiment"],
+                summary=item["summary"],
+                categories=item["categories"],
+                entities=item["entities"]  # 传递已提取的实体信息给情感分析
+            )
+            analysis_items.append(analysis_item)
+        else:
+            # 跳过失败的条目
+            enhanced_items[i]["skip_sentiment_analysis"] = True
+    
+    # 只有当有成功增强的条目时才进行情感分析
+    if analysis_items:
+        # 调用news_analyzer进行批量分析
+        analyzed_results = batch_analyze_news(
+            analysis_items,
+            [article_contents[i] for i, item in enumerate(enhanced_items) if "skip_sentiment_analysis" not in item],
+            model_name,
+            model_provider,
+            sentiment_model_name,
+            sentiment_model_provider
         )
-        analysis_items.append(analysis_item)
+        
+        # 更新相关股票和情感信息
+        analyzed_index = 0
+        for i, item in enumerate(enhanced_items):
+            if "skip_sentiment_analysis" not in item:
+                if analyzed_index < len(analyzed_results):
+                    enhanced_items[i]["related_tickers"] = analyzed_results[analyzed_index]["related_tickers"]
+                    enhanced_items[i]["ticker_sentiments"] = analyzed_results[analyzed_index]["ticker_sentiments"]
+                    analyzed_index += 1
     
-    # 调用news_analyzer进行批量分析
-    analyzed_results = batch_analyze_news(
-        analysis_items,
-        article_contents,
-        model_name,
-        model_provider,
-        sentiment_model_name,
-        sentiment_model_provider
-    )
-    
-    # 更新相关股票和情感信息
-    for i, analysis_result in enumerate(analyzed_results):
-        if i < len(enhanced_items):
-            enhanced_items[i]["related_tickers"] = analysis_result["related_tickers"]
-            enhanced_items[i]["ticker_sentiments"] = analysis_result["ticker_sentiments"]
+    # 移除临时标记字段
+    for item in enhanced_items:
+        if "enhancement_status" in item:
+            del item["enhancement_status"]
+        if "skip_sentiment_analysis" in item:
+            del item["skip_sentiment_analysis"]
     
     progress.update_status("news_enhancer", news_items[0].ticker if news_items else "", "完成")
     return enhanced_items
@@ -321,28 +338,35 @@ def update_news_with_enhancements(
             if key in existing_news_map:
                 existing = existing_news_map[key]
                 
+                # 如果当前条目处于错误状态，跳过更新
+                if item.get("enhancement_status") == "error":
+                    # 保持现有状态，不更新
+                    existing_news_map[key] = existing
+                    continue
+                
                 # 只填补原来为空的数据或强制更新所有字段
                 if force_update or not existing.get('summary'):
-                    existing['summary'] = item['summary']
+                    existing['summary'] = item.get('summary', '')
                 
                 if force_update or not existing.get('categories'):
-                    existing['categories'] = item['categories']
+                    existing['categories'] = item.get('categories', [])
                 
                 if force_update or not existing.get('entities'):
-                    existing['entities'] = item['entities']
+                    existing['entities'] = item.get('entities', {})
                 
-                # 更新新增的相关股票和情感字段
-                if force_update or not existing.get('related_tickers'):
+                # 只有在进行完整更新时才更新情感信息和相关股票
+                if 'related_tickers' in item and (force_update or not existing.get('related_tickers')):
                     existing['related_tickers'] = item['related_tickers']
                 
-                if force_update or not existing.get('ticker_sentiments'):
+                if 'ticker_sentiments' in item and (force_update or not existing.get('ticker_sentiments')):
                     existing['ticker_sentiments'] = item['ticker_sentiments']
                 
                 # 更新回处理列表中
                 existing_news_map[key] = existing
             else:
-                # 如果新闻不存在，直接添加
-                existing_news_map[key] = item
+                # 如果新闻不存在，且不在错误状态，则直接添加
+                if item.get("enhancement_status") != "error":
+                    existing_news_map[key] = item
         
         # 将更新后的数据转换回列表
         updated_items = list(existing_news_map.values())

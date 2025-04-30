@@ -11,6 +11,7 @@ from data.models import CompanyNews
 import re
 from llm.models import ModelProvider
 from tools.api import get_company_facts_tickers
+from tools.ticker_lookup import lookup_ticker, validate_ticker
 
 # 情感强度定义 - 从最负面到最正面
 SENTIMENT_SCALE = [
@@ -48,18 +49,171 @@ class NewsAnalysisResult(BaseModel):
 def extract_stock_symbols(news_item: CompanyNews, article_content: str, 
                           model_name: str = None, model_provider: str = None) -> List[str]:
     """
-    从新闻内容和实体信息中提取相关股票代码，优先使用LLM分析
+    从新闻内容和实体信息中提取相关股票代码，使用LLM分析实体来确定相关公司
     
     Args:
         news_item: 新闻项，包含标题、实体信息等
         article_content: 文章内容
-        model_name: 可选，用于LLM分析的模型名称
-        model_provider: 可选，用于LLM分析的模型提供商
+        model_name: 用于LLM分析的模型名称
+        model_provider: 用于LLM分析的模型提供商
         
     Returns:
         相关股票代码列表
     """
-    # 步骤1: 如果提供了模型信息，优先使用LLM进行分析
+    # 确保原始ticker被包含
+    default_tickers = [news_item.ticker] if news_item.ticker else []
+    
+    # 如果没有足够的信息进行分析，直接返回原始ticker
+    if not news_item.entities and not article_content and not model_name:
+        return default_tickers
+    
+    # 准备用于获取有效股票代码的函数
+    def validate_tickers(potential_tickers):
+        """验证股票代码，返回有效的代码"""
+        if not potential_tickers:
+            return default_tickers
+            
+        # 获取有效的股票代码列表
+        valid_tickers = set(get_company_facts_tickers())
+        
+        # 过滤出有效的股票代码
+        verified_tickers = list(set(potential_tickers).intersection(valid_tickers))
+        
+        # 如果原始ticker是有效的，且不在结果中，添加它
+        if news_item.ticker and news_item.ticker not in verified_tickers and news_item.ticker in valid_tickers:
+            verified_tickers.append(news_item.ticker)
+        
+        # 如果没有找到有效的股票代码，则使用原始的ticker
+        if not verified_tickers:
+            return default_tickers
+            
+        return verified_tickers
+    
+    # 首先尝试从实体信息中提取股票代码
+    if news_item.entities:
+        try:
+            # 找出实体中的公司名称并使用ticker_lookup直接查询股票代码
+            company_entities = []
+            if "公司" in news_item.entities:
+                company_entities.extend(news_item.entities["公司"])
+            if "企业" in news_item.entities:
+                company_entities.extend(news_item.entities["企业"])
+            if "组织" in news_item.entities:
+                company_entities.extend(news_item.entities["组织"])
+            if "Company" in news_item.entities:
+                company_entities.extend(news_item.entities["Company"])
+            if "Organization" in news_item.entities:
+                company_entities.extend(news_item.entities["Organization"])
+            
+            # 直接使用ticker_lookup查询已识别的公司实体
+            potential_tickers = []
+            for company in company_entities:
+                ticker_results = lookup_ticker(company)
+                for result in ticker_results:
+                    ticker = result.get("ticker")
+                    if ticker and validate_ticker(ticker):
+                        potential_tickers.append(ticker.upper())
+            
+            # 如果有效使用ticker_lookup找到的股票代码，验证并返回
+            if potential_tickers:
+                # 确保原始ticker也被包含
+                if news_item.ticker:
+                    potential_tickers.append(news_item.ticker)
+                return validate_tickers(potential_tickers)
+            
+            # 若直接查询没有结果，使用LLM分析实体信息，查找相关公司
+            entity_prompt = ChatPromptTemplate.from_template("""
+            你是一个金融数据专家，需要根据提供的实体信息，识别相关的公司及其股票代码。
+            
+            实体信息: {entities}
+            
+            主要相关股票代码: {ticker}
+            
+            任务:
+            1. 分析提供的实体信息，识别所有可能的公司名称
+            2. 对于每个公司，确定其可能的股票代码(例如 AAPL, MSFT, GOOGL等)
+            3. 评估每个公司与主要股票代码的关系(例如竞争对手、供应商、合作伙伴等)
+            
+            请以JSON格式返回结果:
+            {{
+                "related_companies": [
+                    {{
+                        "name": "公司名称",
+                        "ticker": "推测的股票代码",
+                        "relationship": "与主要股票的关系"
+                    }}
+                ]
+            }}
+            
+            注意:
+            - 集中关注公司实体
+            - 股票代码通常是1-5个大写字母
+            - 如果无法确定某个公司的股票代码，请使用空字符串
+            - 确保输出的是有效的JSON格式
+            """)
+            
+            # 准备实体数据格式化
+            entities_str = str(news_item.entities)
+            
+            # 创建实体分析请求
+            prompt = entity_prompt.format(
+                entities=entities_str,
+                ticker=news_item.ticker or ""
+            )
+            
+            # 定义响应模型
+            class CompanyInfo(BaseModel):
+                name: str = Field(..., description="公司名称")
+                ticker: str = Field(..., description="推测的股票代码")
+                relationship: str = Field(..., description="与主要股票的关系")
+            
+            class EntityAnalysisResult(BaseModel):
+                related_companies: List[CompanyInfo] = Field(..., description="相关公司列表")
+            
+            # 调用LLM分析实体
+            if model_name and model_provider:
+                entity_result = call_llm(
+                    prompt=prompt,
+                    model_name=model_name,
+                    model_provider=model_provider,
+                    pydantic_model=EntityAnalysisResult,
+                    agent_name="news_analyzer"
+                )
+                
+                # 提取可能的股票代码和公司名称
+                potential_tickers = []
+                company_names = []
+                if entity_result and entity_result.related_companies:
+                    for company in entity_result.related_companies:
+                        # 如果LLM提供了股票代码，直接使用
+                        if company.ticker and len(company.ticker) <= 5:
+                            potential_tickers.append(company.ticker.upper())
+                        
+                        # 同时收集公司名称，用于后续查询
+                        if company.name and len(company.name) > 1:
+                            company_names.append(company.name)
+                
+                # 对LLM未能提供股票代码但提供了名称的公司进行查询
+                for company_name in company_names:
+                    if company_name:
+                        ticker_results = lookup_ticker(company_name)
+                        for result in ticker_results:
+                            ticker = result.get("ticker")
+                            if ticker and validate_ticker(ticker) and ticker.upper() not in potential_tickers:
+                                potential_tickers.append(ticker.upper())
+                
+                # 确保原始ticker也被包含
+                if news_item.ticker:
+                    potential_tickers.append(news_item.ticker)
+                    
+                # 验证并返回有效的股票代码
+                return validate_tickers(potential_tickers)
+                
+        except Exception as e:
+            print(f"分析实体信息提取股票代码时出错: {e}")
+            # 如果实体分析失败，继续使用内容分析
+    
+    # 如果没有提供模型信息或实体分析失败，尝试使用文章内容进行分析
     if model_name and model_provider and article_content:
         try:
             # 构建提示模板
@@ -98,7 +252,7 @@ def extract_stock_symbols(news_item: CompanyNews, article_content: str,
             prompt = llm_prompt.format(
                 title=news_item.title,
                 date=news_item.date,
-                ticker=news_item.ticker,
+                ticker=news_item.ticker or "",
                 content=article_content
             )
             
@@ -120,85 +274,43 @@ def extract_stock_symbols(news_item: CompanyNews, article_content: str,
                 agent_name="news_analyzer"
             )
             
-            # 收集可能的股票代码
-            potential_tickers: Set[str] = set()
+            # 收集可能的股票代码和公司名称
+            potential_tickers = []
+            company_names = []
             
             # 如果LLM返回了结果，处理识别的公司
             if llm_result and llm_result.identified_companies:
                 for company in llm_result.identified_companies:
+                    # 如果LLM提供了股票代码，直接使用
                     if company.possible_ticker and len(company.possible_ticker) <= 5:
-                        potential_tickers.add(company.possible_ticker.upper())
+                        potential_tickers.append(company.possible_ticker.upper())
+                    
+                    # 同时收集公司名称，用于后续查询
+                    if company.name and len(company.name) > 1:
+                        company_names.append(company.name)
+            
+            # 对LLM未能提供股票代码但提供了名称的公司进行查询
+            for company_name in company_names:
+                if company_name:
+                    ticker_results = lookup_ticker(company_name)
+                    for result in ticker_results:
+                        ticker = result.get("ticker")
+                        if ticker and validate_ticker(ticker) and ticker.upper() not in potential_tickers:
+                            potential_tickers.append(ticker.upper())
             
             # 确保原始ticker也被包含
             if news_item.ticker:
-                potential_tickers.add(news_item.ticker)
+                potential_tickers.append(news_item.ticker)
                 
-            # 验证股票代码是否有效
-            valid_tickers = set(get_company_facts_tickers())
-            verified_tickers = list(potential_tickers.intersection(valid_tickers))
-            
-            # 如果找到了有效的股票代码，直接返回
-            if verified_tickers:
-                return verified_tickers
+            # 验证并返回有效的股票代码
+            return validate_tickers(potential_tickers)
                 
         except Exception as e:
-            # 如果LLM分析失败，记录错误并继续使用传统方法
+            # 如果LLM分析失败，记录错误并返回默认值
             print(f"LLM分析提取股票代码时出错: {e}")
     
-    # 步骤2: 使用传统方法作为备选（保留原有的实现）
-    # 候选股票代码集合
-    potential_tickers: Set[str] = set()
-    
-    # 1. 从文本中提取可能的股票代码（使用正则表达式）
-    # 匹配常见的股票代码模式 ($AAPL, AAPL, $TSLA, TSLA, etc.)
-    pattern = r'\$?([A-Z]{1,5})(?=\s|,|\.|:|;|$|\)|\()'
-    
-    # 从标题和内容中提取
-    text = f"{news_item.title} {article_content}"
-    matches = re.findall(pattern, text)
-    
-    # 过滤掉常见的非股票代码（如AND, THE, A等）
-    common_words = {'A', 'AN', 'THE', 'AND', 'OR', 'FOR', 'IN', 'ON', 'AT', 'TO', 'BY', 'OF', 'AS', 'IS', 'IT', 'BE', 'CEO', 'CFO', 'CTO', 'COO', 'BY'}
-    for symbol in matches:
-        if symbol not in common_words:
-            potential_tickers.add(symbol)
-    
-    # 2. 从实体信息中提取可能的公司名称
-    if news_item.entities:
-        # 检查entities字典中的"公司"、"组织"等关键字
-        company_keys = ["公司", "组织", "company", "organization", "企业", "business", "corporation"]
-        for key in company_keys:
-            if key in news_item.entities and news_item.entities[key]:
-                # 提取公司名称的第一个单词作为可能的股票代码
-                for company in news_item.entities[key]:
-                    # 尝试提取公司名称中的首字母缩写或首个单词
-                    company_words = company.split()
-                    if company_words:
-                        # 检查是否有全大写的词（可能是股票代码）
-                        for word in company_words:
-                            if word.isupper() and len(word) <= 5 and word not in common_words:
-                                potential_tickers.add(word)
-                        
-                        # 如果没有找到全大写的词，使用第一个单词的大写形式作为候选
-                        if len(company_words[0]) <= 5 and company_words[0].upper() not in common_words:
-                            potential_tickers.add(company_words[0].upper())
-    
-    # 3. 验证股票代码是否有效
-    # 获取有效的股票代码列表
-    valid_tickers = set(get_company_facts_tickers())
-    
-    # 过滤出有效的股票代码
-    verified_tickers = list(potential_tickers.intersection(valid_tickers))
-    
-    # 如果原始新闻的ticker不在结果中，且它是有效的，添加它
-    if news_item.ticker and news_item.ticker not in verified_tickers and news_item.ticker in valid_tickers:
-        verified_tickers.append(news_item.ticker)
-    
-    # 如果没有找到有效的股票代码，则使用原始的ticker
-    if not verified_tickers and news_item.ticker:
-        verified_tickers = [news_item.ticker]
-    
-    return verified_tickers
+    # 如果以上方法都失败，返回默认ticker
+    return default_tickers
 
 def analyze_news(
     news_item: CompanyNews,
@@ -219,6 +331,7 @@ def analyze_news(
         分析结果
     """
     # 提取相关股票代码（使用相同的模型）
+    # 优先使用实体信息中提取的股票代码
     potential_tickers = extract_stock_symbols(news_item, article_content, model_name, model_provider)
     
     # 如果没有找到任何潜在股票代码，直接返回只包含原始ticker的结果
@@ -286,6 +399,7 @@ def analyze_news(
     - 如果新闻提到多个股票，请分析每个相关股票的具体影响
     - 即使新闻主要关联的是一个股票代码，但如果内容显示对其他股票有重大影响，请准确分析这种关系
     - 相关性分数应基于新闻与该股票的直接相关程度，1.0表示完全相关，0.0表示完全不相关
+    - 如果股票与新闻完全无关，请将相关程度设为0.0，这样的股票将被过滤掉
     - 只有在确定新闻与某股票真正相关时才包含该股票
     - 确保格式正确，related_tickers必须是数组，ticker_sentiments必须是对象/字典
     """)
@@ -308,7 +422,32 @@ def analyze_news(
             pydantic_model=NewsAnalysisResult,
             agent_name="news_analyzer"
         )
-        return result
+        
+        # 过滤掉相关程度为0.0的股票
+        filtered_tickers = []
+        filtered_sentiments = {}
+        
+        for ticker, sentiment in result.ticker_sentiments.items():
+            if sentiment.relevance > 0.0:
+                filtered_tickers.append(ticker)
+                filtered_sentiments[ticker] = sentiment
+        
+        # 如果过滤后没有相关股票，保留原始ticker
+        if not filtered_tickers and news_item.ticker:
+            filtered_tickers = [news_item.ticker]
+            filtered_sentiments[news_item.ticker] = TickerSentiment(
+                sentiment="neutral",
+                relevance=1.0,
+                reasoning="过滤掉所有相关程度为0的股票后，保留原始股票作为默认"
+            )
+        
+        # 创建过滤后的结果
+        filtered_result = NewsAnalysisResult(
+            related_tickers=filtered_tickers,
+            ticker_sentiments=filtered_sentiments
+        )
+        
+        return filtered_result
     except Exception as e:
         print(f"分析新闻出错，使用基本分析结果: {e}")
         # 发生错误时返回基本结果
@@ -372,16 +511,21 @@ def batch_analyze_news(
                 sentiment_model_provider
             )
             
-            # 转换结果格式
+            # 转换结果格式并过滤相关程度为0的股票
             sentiment_dict = {}
+            filtered_tickers = []
+            
             # 确保ticker_sentiments是字典类型
             if isinstance(analysis_result.ticker_sentiments, dict):
                 for ticker, sentiment_data in analysis_result.ticker_sentiments.items():
-                    sentiment_dict[ticker] = {
-                        "sentiment": sentiment_data.sentiment,
-                        "relevance": sentiment_data.relevance,
-                        "reasoning": sentiment_data.reasoning
-                    }
+                    # 只保留相关程度大于0的股票
+                    if sentiment_data.relevance > 0.0:
+                        sentiment_dict[ticker] = {
+                            "sentiment": sentiment_data.sentiment,
+                            "relevance": sentiment_data.relevance,
+                            "reasoning": sentiment_data.reasoning
+                        }
+                        filtered_tickers.append(ticker)
             else:
                 # 如果不是字典类型，使用默认值
                 sentiment_dict = {
@@ -391,15 +535,22 @@ def batch_analyze_news(
                         "reasoning": "分析结果格式错误，使用默认中性情感"
                     }
                 }
+                filtered_tickers = [news_item.ticker]
+            
+            # 如果过滤后没有相关股票，至少保留原始ticker
+            if not filtered_tickers and news_item.ticker:
+                filtered_tickers = [news_item.ticker]
+                sentiment_dict[news_item.ticker] = {
+                    "sentiment": "neutral",
+                    "relevance": 1.0,
+                    "reasoning": "过滤掉所有相关程度为0的股票后，保留原始股票作为默认"
+                }
             
             # 创建增强项
             enhanced_item = news_item.model_dump()
-            # 确保related_tickers是列表类型
-            if isinstance(analysis_result.related_tickers, list):
-                enhanced_item["related_tickers"] = analysis_result.related_tickers
-            else:
-                enhanced_item["related_tickers"] = [news_item.ticker]
             
+            # 使用过滤后的股票列表作为related_tickers
+            enhanced_item["related_tickers"] = filtered_tickers
             enhanced_item["ticker_sentiments"] = sentiment_dict
             
             enhanced_items.append(enhanced_item)
