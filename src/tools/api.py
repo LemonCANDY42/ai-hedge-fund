@@ -2,6 +2,7 @@ import datetime
 import os
 import pandas as pd
 import requests
+import json
 
 from data.cache import get_cache, init_cache
 from data.models import (
@@ -23,6 +24,9 @@ init_cache()
 
 # 全局缓存实例
 _cache = get_cache()
+
+# 全局变量用于缓存可用的股票代码列表
+_available_tickers = None
 
 
 def get_prices(ticker: str, start_date: str, end_date: str) -> list[Price]:
@@ -463,3 +467,50 @@ def split_date_ranges(dates: list[str]) -> list[dict]:
     })
     
     return ranges
+
+
+def get_company_facts_tickers() -> list[str]:
+    """从API获取所有可用的股票代码列表
+    
+    Returns:
+        list[str]: 股票代码列表
+    """
+    # 首先检查缓存的全局变量
+    global _available_tickers
+    if _available_tickers is not None:
+        return _available_tickers
+    
+    # 检查缓存系统
+    cache_key = "available_tickers"
+    if cached_tickers := _cache.redis.get(cache_key) if _cache.redis else None:
+        _available_tickers = json.loads(cached_tickers)
+        return _available_tickers
+    
+    # 如果不在缓存中，从API获取
+    headers = {}
+    if api_key := os.environ.get("FINANCIAL_DATASETS_API_KEY"):
+        headers["X-API-KEY"] = api_key
+    
+    url = "https://api.financialdatasets.ai/company/facts/tickers/"
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code != 200:
+            raise Exception(f"Error fetching available tickers: {response.status_code} - {response.text}")
+        
+        tickers = response.json().get("tickers", [])
+        
+        # 缓存到Redis
+        if _cache.redis:
+            # 有效期7天
+            _cache.redis.setex(cache_key, 7*24*60*60, json.dumps(tickers))
+        
+        # 缓存到全局变量
+        _available_tickers = tickers
+        
+        return tickers
+    except Exception as e:
+        print(f"获取可用股票代码列表时出错: {e}")
+        # 如果API调用失败，返回一些常见的股票代码作为备用
+        fallback_tickers = ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA", "NVDA", "AMD", "INTC", "IBM"]
+        _available_tickers = fallback_tickers
+        return fallback_tickers

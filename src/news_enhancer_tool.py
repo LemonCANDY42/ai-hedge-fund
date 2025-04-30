@@ -235,7 +235,21 @@ def enhance_news(args):
         model_name = args.model_name
         model_provider = args.model_provider
     
-    print(f"使用模型: {model_name} ({model_provider})")
+    # 选择情感分析模型，如果需要
+    sentiment_model_name = None
+    sentiment_model_provider = None
+    
+    if args.use_separate_sentiment_model:
+        print(f"{Fore.CYAN}您选择使用单独的情感分析模型{Style.RESET_ALL}")
+        if not (args.sentiment_model_name and args.sentiment_model_provider):
+            sentiment_model_name, sentiment_model_provider = select_model()
+        else:
+            sentiment_model_name = args.sentiment_model_name
+            sentiment_model_provider = args.sentiment_model_provider
+        
+        print(f"情感分析使用模型: {sentiment_model_name} ({sentiment_model_provider})")
+    else:
+        print(f"{Fore.CYAN}使用相同的模型进行情感分析:{Style.RESET_ALL} {model_name} ({model_provider})")
     
     # 处理URL内容获取选项
     no_content = args.no_content
@@ -283,6 +297,8 @@ def enhance_news(args):
             end_date=end_date,
             model_name=model_name,
             model_provider=model_provider,
+            sentiment_model_name=sentiment_model_name,
+            sentiment_model_provider=sentiment_model_provider,
             limit=limit,
             force_update=force_update,
             batch_size=batch_size,
@@ -351,6 +367,8 @@ def enhance_news(args):
             end_date=end_date,
             model_name=model_name,
             model_provider=model_provider,
+            sentiment_model_name=sentiment_model_name,
+            sentiment_model_provider=sentiment_model_provider,
             limit_per_ticker=limit,
             force_update=force_update,
             batch_size=batch_size,
@@ -441,6 +459,9 @@ def main():
     enhance_parser.add_argument("--tickers", help="逗号分隔的股票代码列表（当ticker='all'时使用）")
     enhance_parser.add_argument("--yes", "-y", action="store_true", help="自动确认所有提示")
     enhance_parser.add_argument("--no-content", action="store_true", help="不从URL获取新闻内容，仅使用标题")
+    enhance_parser.add_argument("--use-separate-sentiment-model", action="store_true", help="为情感分析使用单独的模型")
+    enhance_parser.add_argument("--sentiment-model-name", help="情感分析专用LLM模型名称")
+    enhance_parser.add_argument("--sentiment-model-provider", help="情感分析专用LLM模型提供商")
     
     # check命令
     check_parser = subparsers.add_parser("check", help="检查新闻数据增强状态")
@@ -463,7 +484,8 @@ def main():
     
     # 执行相应的命令
     if args.command == "enhance":
-        enhance_news(args)
+        success = enhance_news(args)
+        sys.exit(0 if success else 1)
     elif args.command == "check":
         check_news(args)
 

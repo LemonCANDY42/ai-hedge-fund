@@ -17,6 +17,7 @@ from utils.llm import call_llm
 from utils.progress import progress
 from bs4 import BeautifulSoup
 import re
+from agents.news_analyzer import batch_analyze_news
 
 # 全局缓存实例
 _cache = get_cache()
@@ -82,7 +83,9 @@ def enhance_news_with_llm(
     model_name: str,
     model_provider: str,
     limit: int = None,
-    batch_size: int = 1
+    batch_size: int = 1,
+    sentiment_model_name: Optional[str] = None,
+    sentiment_model_provider: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
     使用LLM增强新闻数据
@@ -93,6 +96,8 @@ def enhance_news_with_llm(
         model_provider: 模型提供商
         limit: 处理的新闻项数量上限，如果为None则处理所有项
         batch_size: 批处理大小，每次调用LLM处理的新闻项数量
+        sentiment_model_name: 情感分析专用模型名称（可选）
+        sentiment_model_provider: 情感分析专用模型提供商（可选）
         
     Returns:
         增强后的新闻项列表
@@ -108,6 +113,17 @@ def enhance_news_with_llm(
     total_count = len(news_items)
     processed_count = 0
     enhanced_items = []
+    article_contents = []
+    
+    # 获取所有文章内容
+    for news_item in news_items:
+        progress.update_status("news_enhancer", news_item.ticker, f"获取新闻内容 ({processed_count+1}/{total_count})")
+        article_content = get_article_content(news_item.url or "")
+        article_contents.append(article_content)
+        processed_count += 1
+    
+    # 重置进度计数
+    processed_count = 0
     
     # 创建提示模板
     prompt_template = ChatPromptTemplate.from_template("""
@@ -134,16 +150,13 @@ def enhance_news_with_llm(
     - entities: 包含不同类型实体的对象，key为实体类型，value为该类型的实体列表
     """)
     
-    # 批处理新闻项
+    # 批处理新闻项，完成基本增强（摘要、分类和实体识别）
     for i in range(0, len(news_items), batch_size):
         batch = news_items[i:i+batch_size]
+        batch_contents = article_contents[i:i+batch_size]
         
-        for news_item in batch:
+        for news_item, article_content in zip(batch, batch_contents):
             try:
-                # 获取文章内容
-                progress.update_status("news_enhancer", news_item.ticker, f"获取新闻内容 ({processed_count+1}/{total_count})")
-                article_content = get_article_content(news_item.url or "")
-                
                 # 构建提示
                 prompt = prompt_template.format(
                     ticker=news_item.ticker,
@@ -176,7 +189,10 @@ def enhance_news_with_llm(
                     "sentiment": news_item.sentiment,  # 保留原有的情感值
                     "summary": result.summary,
                     "categories": result.categories,
-                    "entities": result.entities
+                    "entities": result.entities,
+                    # 初始化相关股票和情感字段，将在后续步骤中填充
+                    "related_tickers": [],
+                    "ticker_sentiments": {}
                 }
                 
                 enhanced_items.append(enhanced_item)
@@ -199,9 +215,54 @@ def enhance_news_with_llm(
                     "sentiment": news_item.sentiment,  # 保留原有的情感值
                     "summary": f"摘要: {news_item.title}",
                     "categories": ["未分类"],
-                    "entities": {"公司": [news_item.ticker]}
+                    "entities": {"公司": [news_item.ticker]},
+                    # 初始化相关股票和情感字段
+                    "related_tickers": [news_item.ticker],
+                    "ticker_sentiments": {
+                        news_item.ticker: {
+                            "sentiment": "neutral", 
+                            "relevance": 1.0,
+                            "reasoning": "分析过程中发生错误，使用默认中性情感"
+                        }
+                    }
                 })
                 processed_count += 1
+    
+    # 现在进行相关股票识别和情感分析
+    progress.update_status("news_enhancer", news_items[0].ticker if news_items else "", "分析相关股票和情感")
+    
+    # 将临时字典转换为CompanyNews对象列表，用于情感分析
+    analysis_items = []
+    for item in enhanced_items:
+        analysis_item = CompanyNews(
+            ticker=item["ticker"],
+            title=item["title"],
+            author=item["author"],
+            source=item["source"],
+            date=item["date"],
+            url=item["url"],
+            sentiment=item["sentiment"],
+            summary=item["summary"],
+            categories=item["categories"],
+            entities=item["entities"]
+        )
+        analysis_items.append(analysis_item)
+    
+    # 调用news_analyzer进行批量分析
+    analyzed_results = batch_analyze_news(
+        analysis_items,
+        article_contents,
+        model_name,
+        model_provider,
+        sentiment_model_name,
+        sentiment_model_provider
+    )
+    
+    # 更新相关股票和情感信息
+    for i, analysis_result in enumerate(analyzed_results):
+        if i < len(enhanced_items):
+            enhanced_items[i]["related_tickers"] = analysis_result["related_tickers"]
+            enhanced_items[i]["ticker_sentiments"] = analysis_result["ticker_sentiments"]
     
     progress.update_status("news_enhancer", news_items[0].ticker if news_items else "", "完成")
     return enhanced_items
@@ -260,15 +321,22 @@ def update_news_with_enhancements(
             if key in existing_news_map:
                 existing = existing_news_map[key]
                 
-                # 只填补原来为空的数据
-                if not existing.get('summary') and item.get('summary'):
+                # 只填补原来为空的数据或强制更新所有字段
+                if force_update or not existing.get('summary'):
                     existing['summary'] = item['summary']
                 
-                if not existing.get('categories') and item.get('categories'):
+                if force_update or not existing.get('categories'):
                     existing['categories'] = item['categories']
                 
-                if not existing.get('entities') and item.get('entities'):
+                if force_update or not existing.get('entities'):
                     existing['entities'] = item['entities']
+                
+                # 更新新增的相关股票和情感字段
+                if force_update or not existing.get('related_tickers'):
+                    existing['related_tickers'] = item['related_tickers']
+                
+                if force_update or not existing.get('ticker_sentiments'):
+                    existing['ticker_sentiments'] = item['ticker_sentiments']
                 
                 # 更新回处理列表中
                 existing_news_map[key] = existing
@@ -292,6 +360,8 @@ def enhance_ticker_news(
     end_date: Optional[str] = None,
     model_name: str = "gemma3:12b",  # 默认为本地Ollama模型
     model_provider: str = ModelProvider.OLLAMA.value,
+    sentiment_model_name: Optional[str] = None,
+    sentiment_model_provider: Optional[str] = None,
     limit: Optional[int] = None,
     force_update: bool = False,
     batch_size: int = 1,
@@ -306,6 +376,8 @@ def enhance_ticker_news(
         end_date: 结束日期
         model_name: 模型名称
         model_provider: 模型提供商
+        sentiment_model_name: 情感分析专用模型名称（可选）
+        sentiment_model_provider: 情感分析专用模型提供商（可选）
         limit: 处理的新闻项数量上限
         force_update: 是否强制更新，即使记录已存在
         batch_size: 批处理大小
@@ -336,7 +408,9 @@ def enhance_ticker_news(
                 model_name, 
                 model_provider, 
                 limit, 
-                batch_size
+                batch_size,
+                sentiment_model_name,
+                sentiment_model_provider
             )
             
             # 更新缓存和数据库
@@ -357,6 +431,8 @@ def enhance_multiple_tickers(
     end_date: Optional[str] = None,
     model_name: str = "gemma3:12b",
     model_provider: str = ModelProvider.OLLAMA.value,
+    sentiment_model_name: Optional[str] = None,
+    sentiment_model_provider: Optional[str] = None,
     limit_per_ticker: Optional[int] = None,
     force_update: bool = False,
     batch_size: int = 1,
@@ -371,6 +447,8 @@ def enhance_multiple_tickers(
         end_date: 结束日期
         model_name: 模型名称
         model_provider: 模型提供商
+        sentiment_model_name: 情感分析专用模型名称（可选）
+        sentiment_model_provider: 情感分析专用模型提供商（可选）
         limit_per_ticker: 每个股票处理的新闻项数量上限
         force_update: 是否强制更新，即使记录已存在
         batch_size: 批处理大小
@@ -388,7 +466,9 @@ def enhance_multiple_tickers(
             start_date, 
             end_date, 
             model_name, 
-            model_provider, 
+            model_provider,
+            sentiment_model_name,
+            sentiment_model_provider,
             limit_per_ticker, 
             force_update,
             batch_size,

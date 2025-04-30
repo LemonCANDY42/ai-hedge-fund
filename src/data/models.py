@@ -110,6 +110,8 @@ class CompanyNews(BaseModel):
     summary: str | None = None
     categories: list[str] | None = None
     entities: dict[str, list[str]] | None = None
+    related_tickers: list[str] | None = None
+    ticker_sentiments: dict[str, dict[str, float]] | None = None
 
 
 class CompanyNewsResponse(BaseModel):
