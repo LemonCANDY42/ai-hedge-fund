@@ -8,7 +8,7 @@ from langchain_ollama import ChatOllama
 from langchain_community.chat_models import ChatLlamaCpp
 from enum import Enum
 from pydantic import BaseModel
-from typing import Tuple
+from typing import Tuple, List
 
 
 class ModelProvider(str, Enum):
@@ -94,7 +94,7 @@ LMSTUDIO_MODELS = []
 
 def get_lmstudio_models() -> List[LLMModel]:
     """Get models available from LM Studio server."""
-    from utils.lmstudio import get_available_lmstudio_models, format_model_names
+    from src.utils.lmstudio import get_available_lmstudio_models, format_model_names
     
     # Get models from LM Studio API
     try:

@@ -9,11 +9,11 @@ import time
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import or_, and_
 
-from data.database import (
+from src.data.database import (
     get_db, get_redis, generate_cache_key, REDIS_EXPIRATION,
     is_db_enabled, is_redis_enabled, get_cache_mode
 )
-import data.db_models as db_models
+import src.data.db_models as db_models
 
 # 设置日志记录器
 logger = logging.getLogger(__name__)
@@ -937,7 +937,7 @@ def init_cache():
     global _cache
     
     # 确保数据库已初始化
-    from data.database import init_db, get_cache_mode
+    from src.data.database import init_db, get_cache_mode
     init_db()
     
     # 重置全局缓存实例以反映最新的数据库状态

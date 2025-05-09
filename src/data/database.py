@@ -8,7 +8,7 @@ import redis
 import logging
 
 # 从db_models.py导入Base
-from data.db_models import Base, BaseModel
+from src.data.db_models import Base, BaseModel
 
 # 配置日志记录器
 logging.basicConfig(level=logging.INFO)

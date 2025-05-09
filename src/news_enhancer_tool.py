@@ -13,18 +13,18 @@ from typing import List, Optional
 from colorama import Fore, Style, init
 import questionary
 
-from data.cache import init_cache, get_cache
-from tools.news_enhancer import enhance_ticker_news, enhance_multiple_tickers
-from tools.api import get_company_news
-from llm.models import (
+from src.data.cache import init_cache, get_cache
+from src.tools.news_enhancer import enhance_ticker_news, enhance_multiple_tickers
+from src.tools.api import get_company_news
+from src.llm.models import (
     AVAILABLE_MODELS, OLLAMA_MODELS, get_lmstudio_models, ModelProvider, 
     LLM_ORDER, OLLAMA_LLM_ORDER, get_model_info
 )
-from utils.ollama import (
+from src.utils.ollama import (
     is_ollama_installed, is_ollama_server_running, get_locally_available_models,
     download_model, ensure_ollama_and_model
 )
-from utils.lmstudio import is_lmstudio_server_running, ensure_lmstudio_server
+from src.utils.lmstudio import is_lmstudio_server_running, ensure_lmstudio_server
 
 # 初始化colorama
 init(autoreset=True)

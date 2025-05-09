@@ -9,8 +9,8 @@ import requests
 from typing import List, Dict, Any, Optional, Union
 from bs4 import BeautifulSoup
 import re
-from data.cache import get_cache
-from tools.api import get_company_facts_tickers
+from src.data.cache import get_cache
+from src.tools.api import get_company_facts_tickers
 
 # 全局缓存实例
 _cache = get_cache()
