@@ -8,11 +8,12 @@ from langchain_ollama import ChatOllama
 from langchain_community.chat_models import ChatLlamaCpp
 from enum import Enum
 from pydantic import BaseModel
-from typing import Tuple, List, Dict, Any, Optional
+from typing import Tuple
 
 
 class ModelProvider(str, Enum):
     """Enum for supported LLM providers"""
+
     ANTHROPIC = "Anthropic"
     DEEPSEEK = "DeepSeek"
     GEMINI = "Gemini"
@@ -22,9 +23,9 @@ class ModelProvider(str, Enum):
     LMSTUDIO = "LM Studio"
 
 
-
 class LLMModel(BaseModel):
     """Represents an LLM model configuration"""
+
     display_name: str
     model_name: str
     provider: ModelProvider
@@ -32,7 +33,7 @@ class LLMModel(BaseModel):
     def to_choice_tuple(self) -> Tuple[str, str, str]:
         """Convert to format needed for questionary choices"""
         return (self.display_name, self.model_name, self.provider.value)
-    
+
     def has_json_mode(self) -> bool:
         """Check if the model supports JSON mode"""
         if self.is_deepseek() or self.is_gemini():
@@ -41,15 +42,15 @@ class LLMModel(BaseModel):
         if self.is_ollama():
             return "llama3" in self.model_name or "neural-chat" in self.model_name
         return True
-    
+
     def is_deepseek(self) -> bool:
         """Check if the model is a DeepSeek model"""
         return self.model_name.startswith("deepseek")
-    
+
     def is_gemini(self) -> bool:
         """Check if the model is a Gemini model"""
         return self.model_name.startswith("gemini")
-        
+
     def is_ollama(self) -> bool:
         """Check if the model is an Ollama model"""
         return self.provider == ModelProvider.OLLAMA
@@ -61,115 +62,31 @@ class LLMModel(BaseModel):
 
 # Define available models
 AVAILABLE_MODELS = [
-    LLMModel(
-        display_name="[anthropic] claude-3.5-haiku",
-        model_name="claude-3-5-haiku-latest",
-        provider=ModelProvider.ANTHROPIC
-    ),
-    LLMModel(
-        display_name="[anthropic] claude-3.5-sonnet",
-        model_name="claude-3-5-sonnet-latest",
-        provider=ModelProvider.ANTHROPIC
-    ),
-    LLMModel(
-        display_name="[anthropic] claude-3.7-sonnet",
-        model_name="claude-3-7-sonnet-latest",
-        provider=ModelProvider.ANTHROPIC
-    ),
-    LLMModel(
-        display_name="[deepseek] deepseek-r1",
-        model_name="deepseek-reasoner",
-        provider=ModelProvider.DEEPSEEK
-    ),
-    LLMModel(
-        display_name="[deepseek] deepseek-v3",
-        model_name="deepseek-chat",
-        provider=ModelProvider.DEEPSEEK
-    ),
-    LLMModel(
-        display_name="[gemini] gemini-2.0-flash",
-        model_name="gemini-2.0-flash",
-        provider=ModelProvider.GEMINI
-    ),
-    LLMModel(
-        display_name="[gemini] gemini-2.5-pro",
-        model_name="gemini-2.5-pro-exp-03-25",
-        provider=ModelProvider.GEMINI
-    ),
-    LLMModel(
-        display_name="[groq] llama-4-scout-17b",
-        model_name="meta-llama/llama-4-scout-17b-16e-instruct",
-        provider=ModelProvider.GROQ
-    ),
-    LLMModel(
-        display_name="[groq] llama-4-maverick-17b",
-        model_name="meta-llama/llama-4-maverick-17b-128e-instruct",
-        provider=ModelProvider.GROQ
-    ),
-    LLMModel(
-        display_name="[openai] gpt-4.5",
-        model_name="gpt-4.5-preview",
-        provider=ModelProvider.OPENAI
-    ),
-    LLMModel(
-        display_name="[openai] gpt-4o",
-        model_name="gpt-4o",
-        provider=ModelProvider.OPENAI
-    ),
-    LLMModel(
-        display_name="[openai] o3",
-        model_name="o3",
-        provider=ModelProvider.OPENAI
-    ),
-    LLMModel(
-        display_name="[openai] o4-mini",
-        model_name="o4-mini",
-        provider=ModelProvider.OPENAI
-    ),
+    LLMModel(display_name="[anthropic] claude-3.5-haiku", model_name="claude-3-5-haiku-latest", provider=ModelProvider.ANTHROPIC),
+    LLMModel(display_name="[anthropic] claude-3.5-sonnet", model_name="claude-3-5-sonnet-latest", provider=ModelProvider.ANTHROPIC),
+    LLMModel(display_name="[anthropic] claude-3.7-sonnet", model_name="claude-3-7-sonnet-latest", provider=ModelProvider.ANTHROPIC),
+    LLMModel(display_name="[deepseek] deepseek-r1", model_name="deepseek-reasoner", provider=ModelProvider.DEEPSEEK),
+    LLMModel(display_name="[deepseek] deepseek-v3", model_name="deepseek-chat", provider=ModelProvider.DEEPSEEK),
+    LLMModel(display_name="[gemini] gemini-2.0-flash", model_name="gemini-2.0-flash", provider=ModelProvider.GEMINI),
+    LLMModel(display_name="[gemini] gemini-2.5-pro", model_name="gemini-2.5-pro-exp-03-25", provider=ModelProvider.GEMINI),
+    LLMModel(display_name="[groq] llama-4-scout-17b", model_name="meta-llama/llama-4-scout-17b-16e-instruct", provider=ModelProvider.GROQ),
+    LLMModel(display_name="[groq] llama-4-maverick-17b", model_name="meta-llama/llama-4-maverick-17b-128e-instruct", provider=ModelProvider.GROQ),
+    LLMModel(display_name="[openai] gpt-4.5", model_name="gpt-4.5-preview", provider=ModelProvider.OPENAI),
+    LLMModel(display_name="[openai] gpt-4o", model_name="gpt-4o", provider=ModelProvider.OPENAI),
+    LLMModel(display_name="[openai] o3", model_name="o3", provider=ModelProvider.OPENAI),
+    LLMModel(display_name="[openai] o4-mini", model_name="o4-mini", provider=ModelProvider.OPENAI),
 ]
 
 # Define Ollama models separately
 OLLAMA_MODELS = [
-    LLMModel(
-        display_name="[ollama] gemma3 (4B)",
-        model_name="gemma3:4b",
-        provider=ModelProvider.OLLAMA
-    ),
-    LLMModel(
-        display_name="[ollama] qwen2.5 (7B)",
-        model_name="qwen2.5",
-        provider=ModelProvider.OLLAMA
-    ),
-    LLMModel(
-        display_name="[ollama] llama3.1 (8B)",
-        model_name="llama3.1:latest",
-        provider=ModelProvider.OLLAMA
-    ),
-    LLMModel(
-        display_name="[ollama] gemma3 (12B)",
-        model_name="gemma3:12b",
-        provider=ModelProvider.OLLAMA
-    ),
-    LLMModel(
-        display_name="[ollama] mistral-small3.1 (24B)",
-        model_name="mistral-small3.1",
-        provider=ModelProvider.OLLAMA
-    ),
-    LLMModel(
-        display_name="[ollama] gemma3 (27B)",
-        model_name="gemma3:27b",
-        provider=ModelProvider.OLLAMA
-    ),
-    LLMModel(
-        display_name="[ollama] qwen2.5 (32B)",
-        model_name="qwen2.5:32b",
-        provider=ModelProvider.OLLAMA
-    ),
-    LLMModel(
-        display_name="[ollama] llama-3.3 (70B)",
-        model_name="llama3.3:70b-instruct-q4_0",
-        provider=ModelProvider.OLLAMA
-    ),
+    LLMModel(display_name="[google] gemma3 (4B)", model_name="gemma3:4b", provider=ModelProvider.OLLAMA),
+    LLMModel(display_name="[alibaba] qwen3 (4B)", model_name="qwen3:4b", provider=ModelProvider.OLLAMA),
+    LLMModel(display_name="[meta] llama3.1 (8B)", model_name="llama3.1:latest", provider=ModelProvider.OLLAMA),
+    LLMModel(display_name="[google] gemma3 (12B)", model_name="gemma3:12b", provider=ModelProvider.OLLAMA),
+    LLMModel(display_name="[mistral] mistral-small3.1 (24B)", model_name="mistral-small3.1", provider=ModelProvider.OLLAMA),
+    LLMModel(display_name="[google] gemma3 (27B)", model_name="gemma3:27b", provider=ModelProvider.OLLAMA),
+    LLMModel(display_name="[alibaba] qwen3 (30B-a3B)", model_name="qwen3:30b-a3b", provider=ModelProvider.OLLAMA),
+    LLMModel(display_name="[meta] llama-3.3 (70B)", model_name="llama3.3:70b-instruct-q4_0", provider=ModelProvider.OLLAMA),
 ]
 
 # Define default LM Studio models
@@ -201,6 +118,7 @@ LLM_ORDER = [model.to_choice_tuple() for model in AVAILABLE_MODELS]
 
 # Create Ollama LLM_ORDER separately
 OLLAMA_LLM_ORDER = [model.to_choice_tuple() for model in OLLAMA_MODELS]
+
 
 def get_model_info(model_name: str) -> LLMModel | None:
     """Get model information by model_name"""
@@ -243,9 +161,11 @@ def get_model(model_name: str, model_provider: ModelProvider) -> ChatOpenAI | Ch
         return ChatGoogleGenerativeAI(model=model_name, api_key=api_key)
     elif model_provider == ModelProvider.OLLAMA:
         # For Ollama, we use a base URL instead of an API key
-        base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        # Check if OLLAMA_HOST is set (for Docker on macOS)
+        ollama_host = os.getenv("OLLAMA_HOST", "localhost")
+        base_url = os.getenv("OLLAMA_BASE_URL", f"http://{ollama_host}:11434")
         return ChatOllama(
-            model=model_name, 
+            model=model_name,
             base_url=base_url,
         )
     elif model_provider == ModelProvider.LMSTUDIO:

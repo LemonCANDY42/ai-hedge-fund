@@ -46,6 +46,8 @@ By using this software, you agree to use it solely for learning purposes.
 
 ## Table of Contents
 - [Setup](#setup)
+  - [Using Poetry](#using-poetry)
+  - [Using Docker](#using-docker)
 - [Usage](#usage)
   - [Running the Hedge Fund](#running-the-hedge-fund)
   - [Running the Backtester](#running-the-backtester)
@@ -56,6 +58,8 @@ By using this software, you agree to use it solely for learning purposes.
 - [License](#license)
 
 ## Setup
+
+### Using Poetry
 
 Clone the repository:
 ```bash
@@ -94,6 +98,33 @@ GROQ_API_KEY=your-groq-api-key
 FINANCIAL_DATASETS_API_KEY=your-financial-datasets-api-key
 ```
 
+### Using Docker
+
+1. Make sure you have Docker installed on your system. If not, you can download it from [Docker's official website](https://www.docker.com/get-started).
+
+2. Clone the repository:
+```bash
+git clone https://github.com/virattt/ai-hedge-fund.git
+cd ai-hedge-fund
+```
+
+3. Set up your environment variables:
+```bash
+# Create .env file for your API keys
+cp .env.example .env
+```
+
+4. Edit the .env file to add your API keys as described above.
+
+5. Build the Docker image:
+```bash
+# On Linux/Mac:
+./run.sh build
+
+# On Windows:
+run.bat build
+```
+
 **Important**: You must set `OPENAI_API_KEY`, `GROQ_API_KEY`, `ANTHROPIC_API_KEY`, or `DEEPSEEK_API_KEY` for the hedge fund to work.  If you want to use LLMs from all providers, you will need to set all API keys.
 
 Financial data for AAPL, GOOGL, MSFT, NVDA, and TSLA is free and does not require an API key.
@@ -118,8 +149,19 @@ To use local LLMs, you can set up either Ollama or LM Studio:
 ## Usage
 
 ### Running the Hedge Fund
+
+#### With Poetry
 ```bash
 poetry run python src/main.py --ticker AAPL,MSFT,NVDA
+```
+
+#### With Docker
+```bash
+# On Linux/Mac:
+./run.sh --ticker AAPL,MSFT,NVDA main
+
+# On Windows:
+run.bat --ticker AAPL,MSFT,NVDA main
 ```
 
 **Example Output:**
@@ -128,7 +170,14 @@ poetry run python src/main.py --ticker AAPL,MSFT,NVDA
 You can also specify a `--ollama` flag to run the AI hedge fund using local LLMs.
 
 ```bash
+# With Poetry:
 poetry run python src/main.py --ticker AAPL,MSFT,NVDA --ollama
+
+# With Docker (on Linux/Mac):
+./run.sh --ticker AAPL,MSFT,NVDA --ollama main
+
+# With Docker (on Windows):
+run.bat --ticker AAPL,MSFT,NVDA --ollama main
 ```
 
 You can also specify a `--lmstudio` flag to run the AI hedge fund using LM Studio for local LLM inference.
@@ -140,18 +189,43 @@ poetry run python src/main.py --ticker AAPL,MSFT,NVDA --lmstudio
 You can also specify a `--show-reasoning` flag to print the reasoning of each agent to the console.
 
 ```bash
+# With Poetry:
 poetry run python src/main.py --ticker AAPL,MSFT,NVDA --show-reasoning
+
+# With Docker (on Linux/Mac):
+./run.sh --ticker AAPL,MSFT,NVDA --show-reasoning main
+
+# With Docker (on Windows):
+run.bat --ticker AAPL,MSFT,NVDA --show-reasoning main
 ```
+
 You can optionally specify the start and end dates to make decisions for a specific time period.
 
 ```bash
+# With Poetry:
 poetry run python src/main.py --ticker AAPL,MSFT,NVDA --start-date 2024-01-01 --end-date 2024-03-01 
+
+# With Docker (on Linux/Mac):
+./run.sh --ticker AAPL,MSFT,NVDA --start-date 2024-01-01 --end-date 2024-03-01 main
+
+# With Docker (on Windows):
+run.bat --ticker AAPL,MSFT,NVDA --start-date 2024-01-01 --end-date 2024-03-01 main
 ```
 
 ### Running the Backtester
 
+#### With Poetry
 ```bash
 poetry run python src/backtester.py --ticker AAPL,MSFT,NVDA
+```
+
+#### With Docker
+```bash
+# On Linux/Mac:
+./run.sh --ticker AAPL,MSFT,NVDA backtest
+
+# On Windows:
+run.bat --ticker AAPL,MSFT,NVDA backtest
 ```
 
 **Example Output:**
@@ -161,12 +235,26 @@ poetry run python src/backtester.py --ticker AAPL,MSFT,NVDA
 You can optionally specify the start and end dates to backtest over a specific time period.
 
 ```bash
+# With Poetry:
 poetry run python src/backtester.py --ticker AAPL,MSFT,NVDA --start-date 2024-01-01 --end-date 2024-03-01
+
+# With Docker (on Linux/Mac):
+./run.sh --ticker AAPL,MSFT,NVDA --start-date 2024-01-01 --end-date 2024-03-01 backtest
+
+# With Docker (on Windows):
+run.bat --ticker AAPL,MSFT,NVDA --start-date 2024-01-01 --end-date 2024-03-01 backtest
 ```
 
 You can also specify a `--ollama` flag to run the backtester using local LLMs.
 ```bash
+# With Poetry:
 poetry run python src/backtester.py --ticker AAPL,MSFT,NVDA --ollama
+
+# With Docker (on Linux/Mac):
+./run.sh --ticker AAPL,MSFT,NVDA --ollama backtest
+
+# With Docker (on Windows):
+run.bat --ticker AAPL,MSFT,NVDA --ollama backtest
 ```
 
 You can also specify a `--lmstudio` flag to run the backtester using LM Studio for local LLM inference.
